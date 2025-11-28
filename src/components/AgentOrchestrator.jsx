@@ -1,92 +1,96 @@
-import React, { useState, useEffect } from 'react';
-import { Brain, Database, Search, FlaskConical, CheckCircle2, Loader2, ArrowRight, Activity } from 'lucide-react';
+import React from 'react';
+import { CheckCircle, Circle, Loader } from 'lucide-react';
 
-const AgentStep = ({ icon: Icon, title, status, delay }) => {
-    const [show, setShow] = useState(false);
-
-    useEffect(() => {
-        const timer = setTimeout(() => setShow(true), delay);
-        return () => clearTimeout(timer);
-    }, [delay]);
-
-    if (!show) return null;
-
-    return (
-        <div className={`flex items-center gap-4 p-4 rounded-xl border transition-all duration-500 ${status === 'completed'
-            ? 'bg-chemistry-success/10 border-chemistry-success/30 text-chemistry-success'
-            : status === 'active'
-                ? 'bg-chemistry-accent/10 border-chemistry-accent/30 text-chemistry-accent scale-105 shadow-lg shadow-chemistry-accent/10'
-                : 'bg-slate-800/50 border-slate-700 text-slate-500'
-            }`}>
-            <div className={`p-2 rounded-lg ${status === 'completed' ? 'bg-chemistry-success/20' :
-                status === 'active' ? 'bg-chemistry-accent/20 animate-pulse' : 'bg-slate-800'
-                }`}>
-                {status === 'completed' ? <CheckCircle2 className="w-6 h-6" /> : <Icon className="w-6 h-6" />}
-            </div>
-            <div className="flex-1">
-                <h3 className="font-medium">{title}</h3>
-                {status === 'active' && (
-                    <p className="text-xs opacity-80 animate-pulse">Processing...</p>
-                )}
-            </div>
-            {status === 'active' && <Loader2 className="w-5 h-5 animate-spin" />}
-        </div>
-    );
-};
-
-const AgentOrchestrator = ({ loading, onComplete }) => {
-    const [currentStep, setCurrentStep] = useState(0);
-
-    // Simulation steps
-    const steps = [
-        { icon: Brain, title: "Agent 1: Parsing User Intent", duration: 1000 },
-        { icon: Database, title: "Agent 2: Resolving Chemical Structure", duration: 1000 },
-        { icon: Search, title: "Agent 3: Retrieving Literature", duration: 1500 },
-        { icon: FlaskConical, title: "Agent 4: Analyzing Reaction Pathways", duration: 1500 },
-        { icon: Brain, title: "Agent 5: Retrosynthesis Planning", duration: 2000 },
-        { icon: Activity, title: "Agent 6: Forward Reaction Prediction", duration: 1500 },
-        { icon: CheckCircle2, title: "Agent 8: Safety & Compliance Check", duration: 1000 },
-        { icon: Search, title: "Agent 10: Cost Estimation", duration: 1000 },
-        { icon: ArrowRight, title: "Agent 7: Ranking Routes", duration: 1000 },
-        { icon: Database, title: "Agent 9: Generating Protocol", duration: 1000 },
-        { icon: Database, title: "Agent 11: Logging Provenance", duration: 500 },
+const AgentOrchestrator = ({ isActive, activeIndex = -1, completedIndices = [] }) => {
+    const agents = [
+        { name: "Intent Parser", icon: "🔍", desc: "Understanding query" },
+        { name: "Canonicalizer", icon: "⚗️", desc: "Validating structure" },
+        { name: "Literature Search", icon: "📚", desc: "Finding precedents" },
+        { name: "Reaction Search", icon: "🧪", desc: "Matching reactions" },
+        { name: "Retrosynthesis", icon: "🔬", desc: "Planning routes" },
+        { name: "Yield Prediction", icon: "📊", desc: "Estimating yields" },
+        { name: "Safety Check", icon: "⚠️", desc: "Analyzing hazards" },
+        { name: "Procurement", icon: "💰", desc: "Finding vendors" },
+        { name: "Route Scoring", icon: "⭐", desc: "Ranking routes" },
+        { name: "Protocol Gen", icon: "📝", desc: "Creating protocol" },
+        { name: "Data Curation", icon: "💾", desc: "Logging data" }
     ];
 
-    useEffect(() => {
-        if (loading) {
-            setCurrentStep(0);
-            let totalDelay = 0;
-
-            steps.forEach((step, index) => {
-                setTimeout(() => {
-                    setCurrentStep(index);
-                }, totalDelay);
-                totalDelay += step.duration;
-            });
-
-            // Finish after all steps
-            setTimeout(() => {
-                setCurrentStep(steps.length); // All done
-            }, totalDelay);
-        }
-    }, [loading]);
-
-    if (!loading) return null;
+    if (!isActive && completedIndices.length === 0) return null;
 
     return (
-        <div className="space-y-4 max-w-2xl mx-auto my-8">
-            {steps.map((step, index) => (
-                <AgentStep
-                    key={index}
-                    icon={step.icon}
-                    title={step.title}
-                    status={
-                        index < currentStep ? 'completed' :
-                            index === currentStep ? 'active' : 'pending'
+        <div className="bg-slate-800/30 backdrop-blur-sm rounded-xl p-4 border border-slate-700/50">
+            <h3 className="text-sm font-semibold text-slate-300 mb-3 flex items-center gap-2">
+                <Loader className={`w-4 h-4 ${activeIndex >= 0 ? 'animate-spin text-chemistry-accent' : 'text-slate-600'}`} />
+                Real-Time Agent Pipeline
+                {completedIndices.length === agents.length && (
+                    <span className="ml-auto text-xs text-emerald-400">✓ Complete</span>
+                )}
+            </h3>
+            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2">
+                {agents.map((agent, index) => {
+                    const isActiveAgent = activeIndex === index;
+                    const isCompleted = completedIndices.includes(index);
+                    const isPending = !isActiveAgent && !isCompleted && activeIndex !== -1;
+
+                    return (
+                        <div
+                            key={index}
+                            className={`
+                                relative p-2 rounded-lg border transition-all duration-300
+                                ${isActiveAgent ? 'bg-chemistry-accent/10 border-chemistry-accent/50 shadow-lg shadow-chemistry-accent/20' : ''}
+                                ${isCompleted ? 'bg-emerald-500/10 border-emerald-500/30' : ''}
+                                ${isPending ? 'bg-slate-800/50 border-slate-700' : ''}
+                                ${!isActiveAgent && !isCompleted && !isPending ? 'bg-slate-900/30 border-slate-800' : ''}
+                            `}
+                        >
+                            <div className="flex items-start gap-2">
+                                <span className={`text-xl ${isCompleted ? 'opacity-60' : ''}`}>
+                                    {agent.icon}
+                                </span>
+                                <div className="flex-1 min-w-0">
+                                    <p className={`text-xs font-medium truncate ${isActiveAgent ? 'text-chemistry-accent' :
+                                        isCompleted ? 'text-emerald-400' :
+                                            'text-slate-400'
+                                        }`}>
+                                        {agent.name}
+                                    </p>
+                                    <p className="text-[10px] text-slate-500 truncate">
+                                        {isActiveAgent ? agent.desc : isCompleted ? 'Done' : 'Pending'}
+                                    </p>
+                                </div>
+                                <div className="flex-shrink-0">
+                                    {isCompleted ? (
+                                        <CheckCircle className="w-3 h-3 text-emerald-400" />
+                                    ) : isActiveAgent ? (
+                                        <Loader className="w-3 h-3 text-chemistry-accent animate-spin" />
+                                    ) : (
+                                        <Circle className="w-3 h-3 text-slate-700" />
+                                    )}
+                                </div>
+                            </div>
+                            {isActiveAgent && (
+                                <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-chemistry-accent/20">
+                                    <div className="h-full bg-chemistry-accent animate-pulse" style={{ width: '100%' }}></div>
+                                </div>
+                            )}
+                        </div>
+                    );
+                })}
+            </div>
+            <div className="mt-3 text-[10px] text-slate-600 flex items-center justify-between">
+                <span>
+                    {completedIndices.length === agents.length
+                        ? '🎉 All agents executed successfully'
+                        : `⚡ ${completedIndices.length}/${agents.length} agents completed | LIVE from backend`
                     }
-                    delay={index * 200} // Stagger entrance slightly
-                />
-            ))}
+                </span>
+                {activeIndex >= 0 && activeIndex < agents.length && (
+                    <span className="text-chemistry-accent animate-pulse font-semibold">
+                        {agents[activeIndex].name} executing...
+                    </span>
+                )}
+            </div>
         </div>
     );
 };
