@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Brain, Database, Search, FlaskConical, CheckCircle2, Loader2, ArrowRight } from 'lucide-react';
+import { Brain, Database, Search, FlaskConical, CheckCircle2, Loader2, ArrowRight, Activity } from 'lucide-react';
 
 const AgentStep = ({ icon: Icon, title, status, delay }) => {
     const [show, setShow] = useState(false);
@@ -13,13 +13,13 @@ const AgentStep = ({ icon: Icon, title, status, delay }) => {
 
     return (
         <div className={`flex items-center gap-4 p-4 rounded-xl border transition-all duration-500 ${status === 'completed'
-                ? 'bg-chemistry-success/10 border-chemistry-success/30 text-chemistry-success'
-                : status === 'active'
-                    ? 'bg-chemistry-accent/10 border-chemistry-accent/30 text-chemistry-accent scale-105 shadow-lg shadow-chemistry-accent/10'
-                    : 'bg-slate-800/50 border-slate-700 text-slate-500'
+            ? 'bg-chemistry-success/10 border-chemistry-success/30 text-chemistry-success'
+            : status === 'active'
+                ? 'bg-chemistry-accent/10 border-chemistry-accent/30 text-chemistry-accent scale-105 shadow-lg shadow-chemistry-accent/10'
+                : 'bg-slate-800/50 border-slate-700 text-slate-500'
             }`}>
             <div className={`p-2 rounded-lg ${status === 'completed' ? 'bg-chemistry-success/20' :
-                    status === 'active' ? 'bg-chemistry-accent/20 animate-pulse' : 'bg-slate-800'
+                status === 'active' ? 'bg-chemistry-accent/20 animate-pulse' : 'bg-slate-800'
                 }`}>
                 {status === 'completed' ? <CheckCircle2 className="w-6 h-6" /> : <Icon className="w-6 h-6" />}
             </div>
@@ -39,10 +39,17 @@ const AgentOrchestrator = ({ loading, onComplete }) => {
 
     // Simulation steps
     const steps = [
-        { icon: Brain, title: "Agent 1: Parsing User Intent", duration: 1500 },
-        { icon: Database, title: "Agent 2: Resolving Chemical Structure", duration: 1500 },
-        { icon: Search, title: "Agent 3: Retrieving Literature", duration: 2000 },
-        { icon: FlaskConical, title: "Agent 4: Analyzing Reaction Pathways", duration: 2000 },
+        { icon: Brain, title: "Agent 1: Parsing User Intent", duration: 1000 },
+        { icon: Database, title: "Agent 2: Resolving Chemical Structure", duration: 1000 },
+        { icon: Search, title: "Agent 3: Retrieving Literature", duration: 1500 },
+        { icon: FlaskConical, title: "Agent 4: Analyzing Reaction Pathways", duration: 1500 },
+        { icon: Brain, title: "Agent 5: Retrosynthesis Planning", duration: 2000 },
+        { icon: Activity, title: "Agent 6: Forward Reaction Prediction", duration: 1500 },
+        { icon: CheckCircle2, title: "Agent 8: Safety & Compliance Check", duration: 1000 },
+        { icon: Search, title: "Agent 10: Cost Estimation", duration: 1000 },
+        { icon: ArrowRight, title: "Agent 7: Ranking Routes", duration: 1000 },
+        { icon: Database, title: "Agent 9: Generating Protocol", duration: 1000 },
+        { icon: Database, title: "Agent 11: Logging Provenance", duration: 500 },
     ];
 
     useEffect(() => {

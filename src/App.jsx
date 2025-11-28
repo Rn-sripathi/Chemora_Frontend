@@ -19,10 +19,10 @@ function App() {
     setResult(null);
 
     try {
-      // Artificial delay to show animation (7 seconds total for 4 steps)
+      // Artificial delay to show animation (13 seconds total for 11 steps)
       const [data] = await Promise.all([
         processQuery(query),
-        new Promise(resolve => setTimeout(resolve, 7000))
+        new Promise(resolve => setTimeout(resolve, 13000))
       ]);
 
       if (data.error) {
@@ -132,6 +132,66 @@ function App() {
                 )}
               </div>
             </div>
+            {/* Synthetic Routes Section */}
+            {result.routes && result.routes.length > 0 && (
+              <div className="bg-slate-800/50 backdrop-blur-md rounded-xl p-6 border border-slate-700">
+                <h2 className="text-xl font-semibold mb-4 flex items-center gap-2 text-chemistry-accent">
+                  <Activity className="w-5 h-5" />
+                  Synthetic Routes
+                </h2>
+                <div className="space-y-4">
+                  {result.routes.map((route, idx) => (
+                    <div key={idx} className="bg-slate-900/50 rounded-lg p-4 border border-slate-700/50">
+                      <div className="flex justify-between items-start mb-2">
+                        <h3 className="font-medium text-slate-200">Route {idx + 1}</h3>
+                        <div className="flex gap-2">
+                          <span className="text-xs px-2 py-1 rounded-full bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">
+                            Score: {route.score}
+                          </span>
+                          <span className="text-xs px-2 py-1 rounded-full bg-blue-500/20 text-blue-400 border border-blue-500/30">
+                            ${route.cost?.total_estimated_cost}
+                          </span>
+                        </div>
+                      </div>
+
+                      {/* Steps */}
+                      <div className="space-y-2 mt-3">
+                        {route.steps.map((step, sIdx) => (
+                          <div key={sIdx} className="text-sm text-slate-400 pl-4 border-l-2 border-slate-700 relative">
+                            <div className="absolute -left-[5px] top-1.5 w-2 h-2 rounded-full bg-slate-600"></div>
+                            <p className="text-slate-300">{step.reaction}</p>
+                            <div className="flex gap-2 mt-1 text-xs">
+                              <span className="opacity-70">Yield: {step.prediction?.predicted_yield}%</span>
+                              <span className="opacity-70">Feasibility: {step.prediction?.feasibility}</span>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+
+                      {/* Safety Flags */}
+                      {route.safety?.hazards?.length > 0 && (
+                        <div className="mt-3 p-2 bg-red-500/10 border border-red-500/20 rounded text-xs text-red-400">
+                          <strong>Safety Alerts:</strong> {route.safety.hazards.map(h => h.hazard).join(", ")}
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Protocol Section */}
+            {result.protocol && (
+              <div className="bg-slate-800/50 backdrop-blur-md rounded-xl p-6 border border-slate-700">
+                <h2 className="text-xl font-semibold mb-4 flex items-center gap-2 text-chemistry-accent">
+                  <BookOpen className="w-5 h-5" />
+                  Generated Protocol
+                </h2>
+                <div className="prose prose-invert prose-sm max-w-none bg-slate-900/50 p-4 rounded-lg border border-slate-700/50 whitespace-pre-wrap font-mono text-xs">
+                  {result.protocol}
+                </div>
+              </div>
+            )}
 
             {/* Literature Results */}
             <div className="bg-chemistry-secondary/60 backdrop-blur-md rounded-xl p-6 border border-slate-700">
