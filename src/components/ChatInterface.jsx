@@ -1,5 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { Send, Bot, User, Loader2 } from 'lucide-react';
+import MoleculeViewer3D from './MoleculeViewer3D';
 
 const ChatInterface = () => {
     const [messages, setMessages] = useState([
@@ -11,6 +12,7 @@ const ChatInterface = () => {
     ]);
     const [input, setInput] = useState('');
     const [loading, setLoading] = useState(false);
+    const [sessionId, setSessionId] = useState(null); // Track session for context persistence
     const [suggestions, setSuggestions] = useState([
         'How do I synthesize aspirin?',
         'What safety precautions for acetylation?',
@@ -47,16 +49,24 @@ const ChatInterface = () => {
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                     message: messageText,
-                    history: messages.map(m => ({ role: m.role, content: m.content }))
+                    history: messages.map(m => ({ role: m.role, content: m.content })),
+                    session_id: sessionId // Send session ID for context persistence
                 })
             });
 
             const data = await response.json();
 
+            // Store session ID from response for future requests
+            if (data.session_id) {
+                setSessionId(data.session_id);
+            }
+
             const aiMessage = {
                 role: 'assistant',
                 content: data.response,
-                timestamp: new Date()
+                timestamp: new Date(),
+                context: data.context,
+                debug: data.debug  // Store debug info (fallback status, data source)
             };
 
             setMessages(prev => [...prev, aiMessage]);
@@ -113,8 +123,8 @@ const ChatInterface = () => {
                     >
                         {/* Avatar */}
                         <div className={`flex-shrink-0 w-8 h-8 rounded-full flex items-center justify-center ${msg.role === 'user'
-                                ? 'bg-chemistry-accent text-slate-900'
-                                : 'bg-chemistry-success/20 text-chemistry-success'
+                            ? 'bg-chemistry-accent text-slate-900'
+                            : 'bg-chemistry-success/20 text-chemistry-success'
                             }`}>
                             {msg.role === 'user' ? <User className="w-5 h-5" /> : <Bot className="w-5 h-5" />}
                         </div>
@@ -122,13 +132,40 @@ const ChatInterface = () => {
                         {/* Message Bubble */}
                         <div className={`max-w-[70%] ${msg.role === 'user' ? 'items-end' : 'items-start'} flex flex-col gap-1`}>
                             <div className={`rounded-2xl px-4 py-3 ${msg.role === 'user'
-                                    ? 'bg-chemistry-accent text-slate-900'
-                                    : 'bg-slate-800/80 border border-slate-700'
+                                ? 'bg-chemistry-accent text-slate-900'
+                                : 'bg-slate-800/80 border border-slate-700'
                                 }`}>
                                 <div className="text-sm leading-relaxed">
                                     {formatMessage(msg.content)}
                                 </div>
+                                {/* Debug: Show fallback indicator */}
+                                {msg.debug && (
+                                    <div className="mt-2 pt-2 border-t border-slate-600/50 flex flex-wrap gap-2">
+                                        <span className={`text-xs px-2 py-0.5 rounded-full ${msg.debug.used_fallback
+                                            ? 'bg-yellow-500/20 text-yellow-400 border border-yellow-500/30'
+                                            : 'bg-green-500/20 text-green-400 border border-green-500/30'
+                                            }`}>
+                                            {msg.debug.used_fallback ? '⚠️ Fallback' : '✅ Agent'}
+                                        </span>
+                                        <span className="text-xs px-2 py-0.5 rounded-full bg-blue-500/20 text-blue-400 border border-blue-500/30">
+                                            📊 {msg.debug.data_source}
+                                        </span>
+                                        <span className="text-xs px-2 py-0.5 rounded-full bg-purple-500/20 text-purple-400 border border-purple-500/30">
+                                            🎯 {msg.debug.intent}
+                                        </span>
+                                    </div>
+                                )}
                             </div>
+
+                            {/* 3D Molecule Viewer - Show when SMILES is available */}
+                            {msg.context && msg.context.smiles && (
+                                <MoleculeViewer3D
+                                    smiles={msg.context.smiles}
+                                    moleculeName={msg.context.current_molecule || 'Molecule'}
+                                    height="280px"
+                                />
+                            )}
+
                             <span className="text-xs text-slate-600">
                                 {msg.timestamp.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                             </span>

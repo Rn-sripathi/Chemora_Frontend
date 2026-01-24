@@ -15,10 +15,8 @@ export async function processQueryStream(query, selectedFile = null, onAgentUpda
     }
 
     return new Promise((resolve, reject) => {
-        const eventSource = new EventSource(`${API_BASE}/api/stream?query=${encodeURIComponent(query)}`);
-
-        // For POST with FormData, EventSource doesn't support it directly
-        // We need to use fetch with streaming instead
+        // Use fetch with streaming for POST with FormData
+        // (EventSource only supports GET, so we use fetch instead)
         fetch(`${API_BASE}/api/stream`, {
             method: 'POST',
             body: formData,
