@@ -1,433 +1,380 @@
-/**
- * MoleculeViewer3D Component - Enhanced Version
- * Interactive 3D/2D molecule visualization with multiple view modes
- */
-
 import React, { useEffect, useRef, useState } from 'react';
 import * as $3Dmol from '3dmol';
 
 const MoleculeViewer3D = ({
-    smiles,
-    moleculeName = "Molecule",
-    width = "100%",
-    height = "320px",
-    defaultStyle = "ball-stick"
+  smiles,
+  moleculeName = 'Molecule',
+  width = '100%',
+  height = '320px',
+  defaultStyle = 'ball-stick',
 }) => {
-    const viewerRef = useRef(null);
-    const containerRef = useRef(null);
-    const [loading, setLoading] = useState(true);
-    const [error, setError] = useState(null);
-    const [viewStyle, setViewStyle] = useState(defaultStyle);
-    const [viewMode, setViewMode] = useState('3d'); // '3d' or '2d'
-    const [isSpinning, setIsSpinning] = useState(true);
-    const [colorScheme, setColorScheme] = useState('element'); // element, chain, residue, custom
+  const viewerRef = useRef(null);
+  const containerRef = useRef(null);
 
-    // Color themes for molecules
-    const colorThemes = {
-        element: 'Jmol',
-        mono: { color: 0x00ff88 },
-        rainbow: 'rainbow',
-        chain: 'chain',
-        dark: { color: 0x6366f1 },
-        neon: { color: 0x22d3ee }
-    };
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+  const [viewStyle, setViewStyle] = useState(defaultStyle);
+  const [viewMode, setViewMode] = useState('3d');
+  const [isSpinning, setIsSpinning] = useState(true);
+  const [colorScheme, setColorScheme] = useState('element');
+  const [surfaceType, setSurfaceType] = useState('none');
+  const [theme, setTheme] = useState(document.documentElement.getAttribute('data-theme') || 'dark');
 
-    useEffect(() => {
-        if (!smiles || !containerRef.current || viewMode === '2d') return;
+  useEffect(() => {
+    const root = document.documentElement;
+    const observer = new MutationObserver(() => {
+      setTheme(root.getAttribute('data-theme') || 'dark');
+    });
+    observer.observe(root, { attributes: true, attributeFilter: ['data-theme'] });
+    return () => observer.disconnect();
+  }, []);
 
-        setLoading(true);
-        setError(null);
+  const viewerBackground = theme === 'light' ? 0xf6f9ff : 0x081734;
 
-        // Clear previous viewer
-        if (viewerRef.current) {
-            viewerRef.current.clear();
-        }
+  useEffect(() => {
+    if (!smiles || !containerRef.current || viewMode === '2d') return;
 
-        try {
-            // Initialize 3Dmol viewer
-            const viewer = $3Dmol.createViewer(containerRef.current, {
-                backgroundColor: 0x0f172a,  // Dark slate
-                antialias: true
-            });
-            viewerRef.current = viewer;
+    setLoading(true);
+    setError(null);
 
-            // Fetch 3D structure from PubChem
-            const pubchemUrl = `https://pubchem.ncbi.nlm.nih.gov/rest/pug/compound/smiles/${encodeURIComponent(smiles)}/SDF?record_type=3d`;
+    if (viewerRef.current) {
+      viewerRef.current.clear();
+    }
 
-            fetch(pubchemUrl)
-                .then(response => {
-                    if (!response.ok) throw new Error('PubChem fetch failed');
-                    return response.text();
-                })
-                .then(sdfData => {
-                    viewer.addModel(sdfData, "sdf");
-                    applyStyle(viewer, viewStyle);
-                    viewer.zoomTo();
-                    viewer.render();
-                    if (isSpinning) viewer.spin(true);
-                    setLoading(false);
-                })
-                .catch(() => {
-                    // Fallback: try SMILES directly
-                    try {
-                        viewer.addModel(smiles, "smiles");
-                        applyStyle(viewer, viewStyle);
-                        viewer.zoomTo();
-                        viewer.render();
-                        if (isSpinning) viewer.spin(true);
-                        setLoading(false);
-                    } catch (e) {
-                        setError('Could not generate 3D structure');
-                        setLoading(false);
-                    }
-                });
+    try {
+      const viewer = $3Dmol.createViewer(containerRef.current, {
+        backgroundColor: viewerBackground,
+        antialias: true,
+      });
+      viewerRef.current = viewer;
 
-        } catch (err) {
-            setError('Failed to initialize viewer');
+      const pubchemUrl = `https://pubchem.ncbi.nlm.nih.gov/rest/pug/compound/smiles/${encodeURIComponent(
+        smiles,
+      )}/SDF?record_type=3d`;
+
+      fetch(pubchemUrl)
+        .then((response) => {
+          if (!response.ok) throw new Error('PubChem fetch failed');
+          return response.text();
+        })
+        .then((sdfData) => {
+          viewer.addModel(sdfData, 'sdf');
+          applyStyle(viewer, viewStyle, colorScheme);
+          applySurface(viewer, surfaceType);
+          viewer.zoomTo();
+          viewer.render();
+          if (isSpinning) viewer.spin(true);
+          setLoading(false);
+        })
+        .catch(() => {
+          try {
+            viewer.addModel(smiles, 'smiles');
+            applyStyle(viewer, viewStyle, colorScheme);
+            applySurface(viewer, surfaceType);
+            viewer.zoomTo();
+            viewer.render();
+            if (isSpinning) viewer.spin(true);
             setLoading(false);
-        }
-
-        return () => {
-            if (viewerRef.current) {
-                viewerRef.current.clear();
-            }
-        };
-    }, [smiles, viewMode]);
-
-    // Apply style when it changes
-    useEffect(() => {
-        if (viewerRef.current && viewMode === '3d') {
-            applyStyle(viewerRef.current, viewStyle);
-        }
-    }, [viewStyle, colorScheme]);
-
-    // Apply molecular visualization style
-    const applyStyle = (viewer, styleName) => {
-        viewer.setStyle({}, {});
-
-        // Get color config based on scheme
-        let colorConfig = {};
-        switch (colorScheme) {
-            case 'element':
-                colorConfig = { colorscheme: 'Jmol' };
-                break;
-            case 'mono':
-                colorConfig = { color: 0x00ff88 };
-                break;
-            case 'dark':
-                colorConfig = { color: 0x6366f1 };
-                break;
-            case 'neon':
-                colorConfig = { color: 0x22d3ee };
-                break;
-            default:
-                colorConfig = { colorscheme: 'Jmol' };
-        }
-
-        switch (styleName) {
-            case 'stick':
-                viewer.setStyle({}, {
-                    stick: { radius: 0.12, ...colorConfig }
-                });
-                break;
-            case 'ball-stick':
-                viewer.setStyle({}, {
-                    stick: { radius: 0.08, ...colorConfig },
-                    sphere: { scale: 0.25, ...colorConfig }
-                });
-                break;
-            case 'sphere':
-            case 'spacefill':
-                viewer.setStyle({}, {
-                    sphere: { scale: 0.9, ...colorConfig }
-                });
-                break;
-            case 'line':
-                viewer.setStyle({}, {
-                    line: { ...colorConfig }
-                });
-                break;
-            case 'cartoon':
-                viewer.setStyle({}, {
-                    cartoon: { color: 'spectrum' }
-                });
-                break;
-            case 'cross':
-                viewer.setStyle({}, {
-                    cross: { radius: 0.2, ...colorConfig }
-                });
-                break;
-            default:
-                viewer.setStyle({}, {
-                    stick: { radius: 0.1, ...colorConfig },
-                    sphere: { scale: 0.25, ...colorConfig }
-                });
-        }
-
-        viewer.render();
-    };
-
-    // Add surface
-    const addSurface = (surfaceType) => {
-        if (!viewerRef.current) return;
-
-        viewerRef.current.removeAllSurfaces();
-
-        if (surfaceType === 'none') {
-            viewerRef.current.render();
-            return;
-        }
-
-        const surfaceTypes = {
-            'vdw': $3Dmol.SurfaceType.VDW,
-            'sas': $3Dmol.SurfaceType.SAS,
-            'ses': $3Dmol.SurfaceType.SES,
-            'ms': $3Dmol.SurfaceType.MS
-        };
-
-        viewerRef.current.addSurface(surfaceTypes[surfaceType] || $3Dmol.SurfaceType.VDW, {
-            opacity: 0.7,
-            colorscheme: 'Jmol'
+          } catch (_e) {
+            setError('Could not generate 3D structure');
+            setLoading(false);
+          }
         });
-        viewerRef.current.render();
+    } catch (_err) {
+      setError('Failed to initialize viewer');
+      setLoading(false);
+    }
+
+    return () => {
+      if (viewerRef.current) viewerRef.current.clear();
+    };
+  }, [smiles, viewMode, theme]);
+
+  useEffect(() => {
+    if (!viewerRef.current || viewMode !== '3d') return;
+    applyStyle(viewerRef.current, viewStyle, colorScheme);
+  }, [viewStyle, colorScheme, viewMode]);
+
+  useEffect(() => {
+    if (!viewerRef.current || viewMode !== '3d') return;
+    applySurface(viewerRef.current, surfaceType);
+  }, [surfaceType, viewMode]);
+
+  useEffect(() => {
+    if (!viewerRef.current || viewMode !== '3d') return;
+    viewerRef.current.setBackgroundColor(viewerBackground);
+    viewerRef.current.render();
+  }, [theme, viewMode, viewerBackground]);
+
+  const applyStyle = (viewer, styleName, scheme) => {
+    viewer.setStyle({}, {});
+
+    let colorConfig = {};
+    switch (scheme) {
+      case 'element':
+        colorConfig = { colorscheme: 'Jmol' };
+        break;
+      case 'mono':
+        colorConfig = { color: 0x00d998 };
+        break;
+      case 'purple':
+        colorConfig = { color: 0x6f79ff };
+        break;
+      case 'cyan':
+        colorConfig = { color: 0x22d3ee };
+        break;
+      default:
+        colorConfig = { colorscheme: 'Jmol' };
+    }
+
+    switch (styleName) {
+      case 'stick':
+        viewer.setStyle({}, { stick: { radius: 0.12, ...colorConfig } });
+        break;
+      case 'ball-stick':
+        viewer.setStyle({}, {
+          stick: { radius: 0.08, ...colorConfig },
+          sphere: { scale: 0.25, ...colorConfig },
+        });
+        break;
+      case 'sphere':
+      case 'spacefill':
+        viewer.setStyle({}, { sphere: { scale: 0.9, ...colorConfig } });
+        break;
+      case 'line':
+        viewer.setStyle({}, { line: { ...colorConfig } });
+        break;
+      case 'cross':
+        viewer.setStyle({}, { cross: { radius: 0.2, ...colorConfig } });
+        break;
+      default:
+        viewer.setStyle({}, {
+          stick: { radius: 0.1, ...colorConfig },
+          sphere: { scale: 0.25, ...colorConfig },
+        });
+    }
+
+    viewer.render();
+  };
+
+  const applySurface = (viewer, nextSurfaceType) => {
+    viewer.removeAllSurfaces();
+    if (nextSurfaceType === 'none') {
+      viewer.render();
+      return;
+    }
+
+    const surfaceTypes = {
+      vdw: $3Dmol.SurfaceType.VDW,
+      sas: $3Dmol.SurfaceType.SAS,
+      ses: $3Dmol.SurfaceType.SES,
+      ms: $3Dmol.SurfaceType.MS,
     };
 
-    // Toggle spin
-    const toggleSpin = () => {
-        if (viewerRef.current) {
-            setIsSpinning(!isSpinning);
-            viewerRef.current.spin(isSpinning ? false : true);
-        }
-    };
+    viewer.addSurface(surfaceTypes[nextSurfaceType] || $3Dmol.SurfaceType.VDW, {
+      opacity: 0.65,
+      colorscheme: 'Jmol',
+    });
+    viewer.render();
+  };
 
-    // Reset view
-    const resetView = () => {
-        if (viewerRef.current) {
-            viewerRef.current.zoomTo();
-            viewerRef.current.render();
-        }
-    };
+  const toggleSpin = () => {
+    if (!viewerRef.current) return;
+    const nextSpin = !isSpinning;
+    setIsSpinning(nextSpin);
+    viewerRef.current.spin(nextSpin);
+  };
 
-    // Take screenshot
-    const takeScreenshot = () => {
-        if (viewerRef.current) {
-            const png = viewerRef.current.pngURI();
-            const link = document.createElement('a');
-            link.download = `${moleculeName.replace(/\s+/g, '_')}_3d.png`;
-            link.href = png;
-            link.click();
-        }
-    };
+  const resetView = () => {
+    if (!viewerRef.current) return;
+    viewerRef.current.zoomTo();
+    viewerRef.current.render();
+  };
 
-    if (!smiles) return null;
+  const takeScreenshot = () => {
+    if (!viewerRef.current) return;
+    const png = viewerRef.current.pngURI();
+    const link = document.createElement('a');
+    link.download = `${moleculeName.replace(/\s+/g, '_')}_3d.png`;
+    link.href = png;
+    link.click();
+  };
 
-    // Generate 2D structure URL from PubChem
-    const get2DImageUrl = () => {
-        return `https://pubchem.ncbi.nlm.nih.gov/rest/pug/compound/smiles/${encodeURIComponent(smiles)}/PNG?image_size=300x300`;
-    };
+  if (!smiles) return null;
 
-    const styles = [
-        { id: 'ball-stick', label: 'Ball & Stick', icon: '⚪' },
-        { id: 'stick', label: 'Stick', icon: '🔗' },
-        { id: 'sphere', label: 'Spacefill', icon: '🔮' },
-        { id: 'line', label: 'Wireframe', icon: '📐' },
-        { id: 'cross', label: 'Cross', icon: '✖️' }
-    ];
+  const get2DImageUrl = () =>
+    `https://pubchem.ncbi.nlm.nih.gov/rest/pug/compound/smiles/${encodeURIComponent(smiles)}/PNG?image_size=600x600`;
 
-    const surfaces = [
-        { id: 'none', label: 'None' },
-        { id: 'vdw', label: 'Van der Waals' },
-        { id: 'sas', label: 'Solvent Accessible' },
-        { id: 'ses', label: 'Solvent Excluded' }
-    ];
+  const styles = [
+    { id: 'ball-stick', label: 'Ball & Stick' },
+    { id: 'stick', label: 'Stick' },
+    { id: 'sphere', label: 'Spacefill' },
+    { id: 'line', label: 'Wireframe' },
+    { id: 'cross', label: 'Cross' },
+  ];
 
-    const colors = [
-        { id: 'element', label: 'Element', color: 'bg-gradient-to-r from-red-500 via-blue-500 to-gray-500' },
-        { id: 'mono', label: 'Green', color: 'bg-green-400' },
-        { id: 'dark', label: 'Purple', color: 'bg-indigo-500' },
-        { id: 'neon', label: 'Cyan', color: 'bg-cyan-400' }
-    ];
+  const surfaces = [
+    { id: 'none', label: 'None' },
+    { id: 'vdw', label: 'Van der Waals' },
+    { id: 'sas', label: 'Solvent Accessible' },
+    { id: 'ses', label: 'Solvent Excluded' },
+  ];
 
-    return (
-        <div className="molecule-viewer-container my-4 bg-slate-900/70 rounded-xl border border-slate-700 overflow-hidden">
-            {/* Header */}
-            <div className="px-4 py-3 border-b border-slate-700 flex items-center justify-between">
-                <h4 className="text-sm font-semibold text-chemistry-accent flex items-center gap-2">
-                    <span className="text-lg">🧬</span>
-                    {moleculeName}
-                </h4>
+  const colors = [
+    { id: 'element', label: 'Element', dotClass: 'is-element' },
+    { id: 'mono', label: 'Green', dotClass: 'is-green' },
+    { id: 'purple', label: 'Purple', dotClass: 'is-purple' },
+    { id: 'cyan', label: 'Cyan', dotClass: 'is-cyan' },
+  ];
 
-                {/* View Mode Toggle */}
-                <div className="flex bg-slate-800 rounded-lg p-0.5">
-                    <button
-                        onClick={() => setViewMode('3d')}
-                        className={`px-3 py-1 text-xs rounded-md transition-all ${viewMode === '3d'
-                            ? 'bg-chemistry-accent text-slate-900 font-medium'
-                            : 'text-slate-400 hover:text-slate-200'
-                            }`}
-                    >
-                        3D View
-                    </button>
-                    <button
-                        onClick={() => setViewMode('2d')}
-                        className={`px-3 py-1 text-xs rounded-md transition-all ${viewMode === '2d'
-                            ? 'bg-chemistry-accent text-slate-900 font-medium'
-                            : 'text-slate-400 hover:text-slate-200'
-                            }`}
-                    >
-                        2D View
-                    </button>
-                </div>
-            </div>
+  return (
+    <div className="molecule-card">
+      <div className="molecule-card-header">
+        <h4 className="molecule-title">
+          <span className="molecule-title-icon" aria-hidden="true">
+            🧬
+          </span>
+          {moleculeName}
+        </h4>
 
-            {/* Main Viewer */}
-            <div className="relative" style={{ height }}>
-                {viewMode === '3d' ? (
-                    <>
-                        {loading && (
-                            <div className="absolute inset-0 flex items-center justify-center bg-slate-900/90 z-10">
-                                <div className="flex flex-col items-center gap-2">
-                                    <div className="w-10 h-10 border-3 border-chemistry-accent border-t-transparent rounded-full animate-spin"></div>
-                                    <span className="text-sm text-slate-400">Loading 3D structure...</span>
-                                </div>
-                            </div>
-                        )}
-
-                        {error && (
-                            <div className="absolute inset-0 flex items-center justify-center bg-slate-900/90 z-10">
-                                <div className="text-center p-4">
-                                    <span className="text-3xl">⚠️</span>
-                                    <p className="text-sm text-slate-400 mt-2">{error}</p>
-                                </div>
-                            </div>
-                        )}
-
-                        <div ref={containerRef} style={{ width: '100%', height: '100%' }} />
-                    </>
-                ) : (
-                    <div className="flex items-center justify-center h-full bg-white p-4">
-                        <img
-                            src={get2DImageUrl()}
-                            alt={`2D structure of ${moleculeName}`}
-                            className="max-w-full max-h-full object-contain"
-                            onError={(e) => {
-                                e.target.onerror = null;
-                                e.target.src = 'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><text y="50" x="50" text-anchor="middle" fill="%23666">2D Not Available</text></svg>';
-                            }}
-                        />
-                    </div>
-                )}
-            </div>
-
-            {/* Controls Panel */}
-            {viewMode === '3d' && (
-                <div className="p-3 border-t border-slate-700 space-y-3">
-                    {/* Style Selection */}
-                    <div>
-                        <label className="text-xs text-slate-500 mb-1.5 block">Visualization Style</label>
-                        <div className="flex flex-wrap gap-1">
-                            {styles.map(s => (
-                                <button
-                                    key={s.id}
-                                    onClick={() => setViewStyle(s.id)}
-                                    className={`px-2.5 py-1 text-xs rounded-lg transition-all flex items-center gap-1 ${viewStyle === s.id
-                                        ? 'bg-chemistry-accent text-slate-900 font-medium'
-                                        : 'bg-slate-800 text-slate-400 hover:bg-slate-700 hover:text-slate-200'
-                                        }`}
-                                >
-                                    <span>{s.icon}</span> {s.label}
-                                </button>
-                            ))}
-                        </div>
-                    </div>
-
-                    {/* Surface Options */}
-                    <div>
-                        <label className="text-xs text-slate-500 mb-1.5 block">Molecular Surface</label>
-                        <div className="flex flex-wrap gap-1">
-                            {surfaces.map(s => (
-                                <button
-                                    key={s.id}
-                                    onClick={() => addSurface(s.id)}
-                                    className="px-2.5 py-1 text-xs rounded-lg bg-slate-800 text-slate-400 hover:bg-slate-700 hover:text-slate-200 transition-all"
-                                >
-                                    {s.label}
-                                </button>
-                            ))}
-                        </div>
-                    </div>
-
-                    {/* Color Scheme */}
-                    <div>
-                        <label className="text-xs text-slate-500 mb-1.5 block">Color Scheme</label>
-                        <div className="flex flex-wrap gap-1">
-                            {colors.map(c => (
-                                <button
-                                    key={c.id}
-                                    onClick={() => setColorScheme(c.id)}
-                                    className={`px-2.5 py-1 text-xs rounded-lg transition-all flex items-center gap-1.5 ${colorScheme === c.id
-                                        ? 'ring-2 ring-chemistry-accent ring-offset-1 ring-offset-slate-900'
-                                        : ''
-                                        } bg-slate-800 text-slate-300 hover:bg-slate-700`}
-                                >
-                                    <span className={`w-3 h-3 rounded-full ${c.color}`}></span>
-                                    {c.label}
-                                </button>
-                            ))}
-                        </div>
-                    </div>
-
-                    {/* Action Buttons */}
-                    <div className="flex flex-wrap gap-2 pt-2 border-t border-slate-700/50">
-                        <button
-                            onClick={toggleSpin}
-                            className={`px-3 py-1.5 text-xs rounded-lg transition-all flex items-center gap-1.5 ${isSpinning
-                                ? 'bg-blue-600/30 text-blue-400'
-                                : 'bg-slate-800 text-slate-400'
-                                }`}
-                        >
-                            🔄 {isSpinning ? 'Stop Spin' : 'Start Spin'}
-                        </button>
-                        <button
-                            onClick={resetView}
-                            className="px-3 py-1.5 text-xs bg-slate-800 text-slate-400 rounded-lg hover:bg-slate-700 transition-all flex items-center gap-1.5"
-                        >
-                            🎯 Reset View
-                        </button>
-                        <button
-                            onClick={takeScreenshot}
-                            className="px-3 py-1.5 text-xs bg-slate-800 text-slate-400 rounded-lg hover:bg-slate-700 transition-all flex items-center gap-1.5"
-                        >
-                            📷 Screenshot
-                        </button>
-                        <a
-                            href={`https://pubchem.ncbi.nlm.nih.gov/#query=${encodeURIComponent(smiles)}`}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="px-3 py-1.5 text-xs bg-indigo-600/30 text-indigo-400 rounded-lg hover:bg-indigo-600/50 transition-all flex items-center gap-1.5"
-                        >
-                            📊 PubChem
-                        </a>
-                    </div>
-                </div>
-            )}
-
-            {/* SMILES Display */}
-            <div className="px-3 py-2 bg-slate-950/50 border-t border-slate-700">
-                <div className="flex items-center gap-2">
-                    <span className="text-xs text-slate-500">SMILES:</span>
-                    <code className="text-xs font-mono text-slate-400 break-all flex-1">{smiles}</code>
-                    <button
-                        onClick={() => navigator.clipboard.writeText(smiles)}
-                        className="text-xs text-slate-500 hover:text-slate-300 transition-colors"
-                        title="Copy SMILES"
-                    >
-                        📋
-                    </button>
-                </div>
-            </div>
+        <div className="molecule-toggle">
+          <button
+            type="button"
+            onClick={() => setViewMode('3d')}
+            className={`molecule-toggle-btn ${viewMode === '3d' ? 'is-active' : ''}`}
+          >
+            3D View
+          </button>
+          <button
+            type="button"
+            onClick={() => setViewMode('2d')}
+            className={`molecule-toggle-btn ${viewMode === '2d' ? 'is-active' : ''}`}
+          >
+            2D View
+          </button>
         </div>
-    );
+      </div>
+
+      <div className="molecule-stage" style={{ width, height }}>
+        {viewMode === '3d' ? (
+          <>
+            {loading ? (
+              <div className="molecule-overlay">
+                <div className="molecule-loader" />
+                <p>Loading 3D structure...</p>
+              </div>
+            ) : null}
+
+            {error ? (
+              <div className="molecule-overlay">
+                <p className="molecule-error">Unable to render this structure: {error}</p>
+              </div>
+            ) : null}
+
+            <div ref={containerRef} style={{ width: '100%', height: '100%' }} />
+          </>
+        ) : (
+          <div className="molecule-stage-2d">
+            <img
+              src={get2DImageUrl()}
+              alt={`2D structure of ${moleculeName}`}
+              className="molecule-2d-image"
+              onError={(e) => {
+                e.currentTarget.onerror = null;
+                e.currentTarget.src =
+                  'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 420 220"><rect width="420" height="220" fill="%23f5f7fc"/><text x="210" y="115" text-anchor="middle" fill="%2362799b" font-family="Arial" font-size="18">2D structure not available</text></svg>';
+              }}
+            />
+          </div>
+        )}
+      </div>
+
+      {viewMode === '3d' ? (
+        <div className="molecule-controls">
+          <div className="molecule-control-group">
+            <label>Visualization Style</label>
+            <div className="molecule-chip-row">
+              {styles.map((styleOption) => (
+                <button
+                  key={styleOption.id}
+                  type="button"
+                  onClick={() => setViewStyle(styleOption.id)}
+                  className={`molecule-chip ${viewStyle === styleOption.id ? 'is-active' : ''}`}
+                >
+                  {styleOption.label}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div className="molecule-control-group">
+            <label>Molecular Surface</label>
+            <div className="molecule-chip-row">
+              {surfaces.map((surfaceOption) => (
+                <button
+                  key={surfaceOption.id}
+                  type="button"
+                  onClick={() => setSurfaceType(surfaceOption.id)}
+                  className={`molecule-chip ${surfaceType === surfaceOption.id ? 'is-active' : ''}`}
+                >
+                  {surfaceOption.label}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div className="molecule-control-group">
+            <label>Color Scheme</label>
+            <div className="molecule-chip-row">
+              {colors.map((color) => (
+                <button
+                  key={color.id}
+                  type="button"
+                  onClick={() => setColorScheme(color.id)}
+                  className={`molecule-chip ${colorScheme === color.id ? 'is-active' : ''}`}
+                >
+                  <span className={`molecule-dot ${color.dotClass}`} />
+                  {color.label}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div className="molecule-actions">
+            <button
+              type="button"
+              onClick={toggleSpin}
+              className={`molecule-action-btn ${isSpinning ? 'is-active' : ''}`}
+            >
+              {isSpinning ? 'Stop Spin' : 'Start Spin'}
+            </button>
+            <button type="button" onClick={resetView} className="molecule-action-btn">
+              Reset View
+            </button>
+            <button type="button" onClick={takeScreenshot} className="molecule-action-btn">
+              Screenshot
+            </button>
+            <a
+              href={`https://pubchem.ncbi.nlm.nih.gov/#query=${encodeURIComponent(smiles)}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="molecule-action-btn is-link"
+            >
+              Open PubChem
+            </a>
+          </div>
+        </div>
+      ) : null}
+
+      <div className="molecule-footer">
+        <span>SMILES</span>
+        <code>{smiles}</code>
+        <button type="button" onClick={() => navigator.clipboard.writeText(smiles)} title="Copy SMILES">
+          Copy
+        </button>
+      </div>
+    </div>
+  );
 };
 
 export default MoleculeViewer3D;

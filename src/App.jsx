@@ -1,32 +1,251 @@
-import React, { useState } from 'react';
-import { Send, FlaskConical, Atom, BookOpen, Activity, Loader2, Paperclip, X, MessageSquare, Beaker } from 'lucide-react';
+import React, { useEffect, useMemo, useState } from 'react';
+import {
+  Activity,
+  AlertTriangle,
+  Atom,
+  BookOpen,
+  FlaskConical,
+  Leaf,
+  Loader2,
+  MessageSquare,
+  Moon,
+  Paperclip,
+  Send,
+  ShieldCheck,
+  Sun,
+  X,
+} from 'lucide-react';
 import { processQueryStream } from './api';
 import AgentOrchestrator from './components/AgentOrchestrator';
 import ChatInterface from './components/ChatInterface';
+import MoleculeStructure2D from './components/MoleculeStructure2D';
 
+const PLANNER_EXAMPLES = [
+  'Design a practical synthesis of celecoxib at 5 g scale from commercial materials.',
+  'Propose a safer and scalable route for aspirin with green solvent suggestions.',
+  'Suggest a low-temperature ibuprofen route and estimate a likely yield window.',
+];
+
+const SCALE_OPTIONS = ['1', '5', '10', '25', '50'];
+
+const CONSTRAINT_LABELS = {
+  lowHazard: 'low hazard profile',
+  scalable: 'scalable to pilot level',
+  tempLimit: 'temperature max 50C',
+};
+
+const LAB_PRESETS = [
+  {
+    label: 'Green Solvents',
+    instruction: 'Prioritize greener solvents (EtOH, EtOAc, 2-MeTHF) and avoid chlorinated solvents.',
+  },
+  {
+    label: 'Scale-Up Safe',
+    instruction: 'Favor scalable operations and avoid pyrophoric or highly moisture-sensitive reagents.',
+  },
+  {
+    label: 'Low Temp Window',
+    instruction: 'Constrain all key transformations to 0-40C and note cooling strategy.',
+  },
+  {
+    label: 'Cost-Aware',
+    instruction: 'Prefer commercially available reagents and minimize high-cost catalysts.',
+  },
+];
+
+const getInitialTheme = () => {
+  const persisted = localStorage.getItem('chemora-theme');
+  if (persisted === 'dark' || persisted === 'light') return persisted;
+  return window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches
+    ? 'dark'
+    : 'light';
+};
+
+const toSubscriptFormula = (formula) => {
+  if (!formula) return null;
+  return formula.split(/(\d+)/).map((chunk, idx) => {
+    if (/^\d+$/.test(chunk)) return <sub key={`f-${idx}`}>{chunk}</sub>;
+    return <span key={`f-${idx}`}>{chunk}</span>;
+  });
+};
+
+const confidenceLabel = (value) => {
+  if (typeof value !== 'number') return null;
+  const normalized = value > 1 ? value : value * 100;
+  return `${Math.round(normalized)}% conf`;
+};
+
+const shortReactionLabel = (reaction) => {
+  if (!reaction) return 'Reaction step';
+  const [left] = reaction.split('->');
+  if (!left) return 'Reaction step';
+  return left
+    .split('+')
+    .map((item) => item.trim())
+    .filter(Boolean)
+    .slice(0, 2)
+    .join(' + ');
+};
 
 function App() {
+  const [theme, setTheme] = useState(getInitialTheme);
+  const [activeView, setActiveView] = useState('planner');
+
   const [query, setQuery] = useState('');
+  const [targetName, setTargetName] = useState('');
+  const [smilesInput, setSmilesInput] = useState('');
+  const [scale, setScale] = useState('5');
+  const [constraints, setConstraints] = useState({
+    lowHazard: true,
+    scalable: true,
+    tempLimit: false,
+  });
+
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState(null);
   const [error, setError] = useState(null);
   const [selectedFile, setSelectedFile] = useState(null);
   const [agentProgress, setAgentProgress] = useState({ activeIndex: -1, completedIndices: [] });
-  const [activeView, setActiveView] = useState('planner'); // 'planner' or 'chat'
+
+  useEffect(() => {
+    document.documentElement.setAttribute('data-theme', theme);
+    localStorage.setItem('chemora-theme', theme);
+  }, [theme]);
+
+  const toggleTheme = () => setTheme((prev) => (prev === 'dark' ? 'light' : 'dark'));
 
   const handleFileSelect = (e) => {
-    if (e.target.files && e.target.files[0]) {
-      setSelectedFile(e.target.files[0]);
-    }
+    if (e.target.files?.[0]) setSelectedFile(e.target.files[0]);
   };
 
-  const clearFile = () => {
-    setSelectedFile(null);
+  const clearFile = () => setSelectedFile(null);
+
+  const applyExample = (text) => {
+    setQuery(text);
+    setActiveView('planner');
   };
+
+  const applyPreset = (instruction) => {
+    setQuery((prev) => (prev ? `${prev}\n${instruction}` : instruction));
+  };
+
+  const normalizedResult = useMemo(() => {
+    if (!result) return null;
+    return {
+      intent: result.intent || {},
+      molecule: result.canonical_data || result.molecule_info || {},
+      routes: Array.isArray(result.routes) ? result.routes : [],
+      protocol: result.protocol || '',
+      literature: result.literature_results || result.literature || [],
+      reactions: result.reaction_results || result.reactions || [],
+    };
+  }, [result]);
+
+  useEffect(() => {
+    if (!normalizedResult) return;
+    if (normalizedResult.molecule?.name) {
+      setTargetName((prev) => prev || normalizedResult.molecule.name);
+    } else if (normalizedResult.intent?.target) {
+      setTargetName((prev) => prev || normalizedResult.intent.target);
+    }
+    if (normalizedResult.molecule?.canonical_smiles) {
+      setSmilesInput((prev) => prev || normalizedResult.molecule.canonical_smiles);
+    }
+  }, [normalizedResult]);
+
+  const routeSummary = useMemo(() => {
+    if (!normalizedResult?.routes?.length) return [];
+    return normalizedResult.routes.slice(0, 3).map((route, idx) => ({
+      key: route.id || `${idx}`,
+      index: idx + 1,
+      score: typeof route.score === 'number' ? Number(route.score).toFixed(1) : '--',
+      steps: Array.isArray(route.steps) ? route.steps.length : 0,
+      cost: route.cost?.total_estimated_cost || null,
+    }));
+  }, [normalizedResult]);
+
+  const activeSmiles = useMemo(
+    () => smilesInput || normalizedResult?.molecule?.canonical_smiles || '',
+    [smilesInput, normalizedResult],
+  );
+
+  const chemicalSnapshot = useMemo(() => {
+    if (!activeSmiles) return [];
+
+    const tokens = activeSmiles.match(/Cl|Br|[A-Z][a-z]?|[cnosp]/g) || [];
+    const heavyAtoms = tokens.filter((token) => token !== 'H').length;
+    const heteroAtoms = tokens.filter((token) => !['C', 'c', 'H'].includes(token)).length;
+    const ringMarkers = (activeSmiles.match(/\d/g) || []).length / 2;
+    const aromaticSymbols = (activeSmiles.match(/[cnosp]/g) || []).length;
+    const stereoCenters = (activeSmiles.match(/@/g) || []).length;
+
+    return [
+      { label: 'Heavy Atoms', value: heavyAtoms || '--' },
+      { label: 'Hetero Atoms', value: heteroAtoms || '--' },
+      { label: 'Ring Count', value: ringMarkers ? Math.round(ringMarkers) : '--' },
+      { label: 'Aromatic Marks', value: aromaticSymbols || '--' },
+      { label: 'Stereo Flags', value: stereoCenters || '--' },
+      { label: 'SMILES Length', value: activeSmiles.length || '--' },
+    ];
+  }, [activeSmiles]);
+
+  const elementProfile = useMemo(() => {
+    const formula = normalizedResult?.molecule?.formula;
+    if (!formula) return [];
+
+    const parsed = [];
+    const pattern = /([A-Z][a-z]?)(\d*)/g;
+    let match;
+    while ((match = pattern.exec(formula)) !== null) {
+      parsed.push({
+        symbol: match[1],
+        count: Number(match[2] || '1'),
+      });
+    }
+    return parsed;
+  }, [normalizedResult]);
+
+  const reagentRows = useMemo(() => {
+    if (!normalizedResult?.routes?.length) return [];
+    const rows = [];
+    const seen = new Set();
+
+    normalizedResult.routes.forEach((route) => {
+      (Array.isArray(route.steps) ? route.steps : []).forEach((step) => {
+        const name = shortReactionLabel(step.reaction);
+        if (seen.has(name)) return;
+        seen.add(name);
+        rows.push({
+          name,
+          temperature: step.conditions || 'Ambient',
+          yield: step.prediction?.predicted_yield || null,
+          feasibility: step.prediction?.feasibility || null,
+        });
+      });
+    });
+
+    return rows.slice(0, 6);
+  }, [normalizedResult]);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    if (!query.trim()) return;
+    if (loading) return;
+
+    const enabledConstraints = Object.entries(constraints)
+      .filter(([, enabled]) => enabled)
+      .map(([key]) => CONSTRAINT_LABELS[key]);
+
+    const composedQuery = [
+      query.trim() || `Design a practical synthesis route for ${targetName || 'target molecule'}.`,
+      targetName ? `Target: ${targetName}` : null,
+      smilesInput ? `Canonical SMILES: ${smilesInput}` : null,
+      `Scale: ${scale} g`,
+      enabledConstraints.length ? `Constraints: ${enabledConstraints.join(', ')}` : null,
+    ]
+      .filter(Boolean)
+      .join('\n');
+
+    if (!composedQuery.trim()) return;
 
     setLoading(true);
     setError(null);
@@ -34,28 +253,21 @@ function App() {
     setAgentProgress({ activeIndex: -1, completedIndices: [] });
 
     try {
-      // Use streaming API with real-time agent updates
-      const data = await processQueryStream(query, selectedFile, (agentUpdate) => {
-        // Real-time callback for each agent
-        setAgentProgress(prev => {
-          const newState = { ...prev, activeIndex: agentUpdate.index };
-
+      const data = await processQueryStream(composedQuery, selectedFile, (agentUpdate) => {
+        setAgentProgress((prev) => {
+          const next = { ...prev, activeIndex: agentUpdate.index };
           if (agentUpdate.status === 'complete' && !prev.completedIndices.includes(agentUpdate.index)) {
-            newState.completedIndices = [...prev.completedIndices, agentUpdate.index];
+            next.completedIndices = [...prev.completedIndices, agentUpdate.index];
           }
-
-          return newState;
+          return next;
         });
       });
 
-      if (data.error) {
-        setError(data.error);
-      } else {
-        setResult(data);
-      }
+      setResult(data);
+      if (data?.error) setError(data.error);
     } catch (err) {
-      setError("Failed to connect to the server. Please ensure the backend is running.");
-      console.error("API Error:", err);
+      setError('Failed to connect to backend. Ensure the API server is running on port 8000.');
+      console.error('API Error:', err);
     } finally {
       setLoading(false);
       setAgentProgress({ activeIndex: -1, completedIndices: [] });
@@ -63,442 +275,368 @@ function App() {
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-900 via-blue-900 to-slate-900">
-      <div className="container mx-auto px-4 py-8">
-        {/* Header */}
-        <div className="text-center mb-8">
-          <h1 className="text-5xl font-bold bg-gradient-to-r from-chemistry-accent via-chemistry-success to-chemistry-highlight bg-clip-text text-transparent mb-2">
-            CHEMORA
-          </h1>
-          <p className="text-slate-400 text-sm">AI-Powered Chemical Synthesis Platform</p>
+    <div className="app-shell">
+      <header className="workspace-header">
+        <div>
+          <p className="eyebrow">AI Synthesis Workspace</p>
+          <h1 className="brand-title">CHEMORA</h1>
+          <p className="brand-subtitle">
+            Design, compare, and operationalize chemical routes with orchestration-grade AI agents.
+          </p>
         </div>
 
-        {/* View Switcher */}
-        <div className="flex justify-center gap-4 mb-6">
-          <button
-            onClick={() => setActiveView('planner')}
-            className={`flex items-center gap-2 px-6 py-3 rounded-xl transition-all ${activeView === 'planner'
-              ? 'bg-chemistry-accent text-slate-900 shadow-lg shadow-chemistry-accent/30'
-              : 'bg-slate-800/50 text-slate-400 hover:bg-slate-800 border border-slate-700'
-              }`}
-          >
-            <Beaker className="w-5 h-5" />
-            <span className="font-semibold">Synthesis Planner</span>
-          </button>
-          <button
-            onClick={() => setActiveView('chat')}
-            className={`flex items-center gap-2 px-6 py-3 rounded-xl transition-all ${activeView === 'chat'
-              ? 'bg-chemistry-accent text-slate-900 shadow-lg shadow-chemistry-accent/30'
-              : 'bg-slate-800/50 text-slate-400 hover:bg-slate-800 border border-slate-700'
-              }`}
-          >
-            <MessageSquare className="w-5 h-5" />
-            <span className="font-semibold">Chat Assistant</span>
+        <div className="workspace-actions">
+          <div className="mode-switch" role="tablist" aria-label="Application views">
+            <button
+              type="button"
+              className={`mode-btn ${activeView === 'planner' ? 'is-active' : ''}`}
+              onClick={() => setActiveView('planner')}
+              role="tab"
+              aria-selected={activeView === 'planner'}
+            >
+              <FlaskConical className="w-4 h-4" />
+              Synthesis Planner
+            </button>
+            <button
+              type="button"
+              className={`mode-btn ${activeView === 'chat' ? 'is-active' : ''}`}
+              onClick={() => setActiveView('chat')}
+              role="tab"
+              aria-selected={activeView === 'chat'}
+            >
+              <MessageSquare className="w-4 h-4" />
+              Chat Assistant
+            </button>
+          </div>
+
+          <button type="button" className="theme-toggle" onClick={toggleTheme} aria-label="Toggle theme">
+            {theme === 'dark' ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
+            {theme === 'dark' ? 'Light' : 'Dark'}
           </button>
         </div>
+      </header>
 
-        {/* Content */}
+      <main className="workspace-main">
         {activeView === 'chat' ? (
           <ChatInterface />
         ) : (
-          <>
-            {/* Synthesis Planner View */}
-            <div className="bg-chemistry-secondary/80 backdrop-blur-md rounded-2xl p-6 border border-slate-700 shadow-xl">
-              <form onSubmit={handleSubmit} className="relative">
-                <input
-                  type="text"
-                  value={query}
-                  onChange={(e) => setQuery(e.target.value)}
-                  placeholder="e.g., I need the synthesis of Aspirin cheaply..."
-                  className="w-full bg-slate-900/50 border border-slate-600 rounded-xl py-4 pl-6 pr-24 text-lg focus:outline-none focus:border-chemistry-accent focus:ring-1 focus:ring-chemistry-accent transition-all placeholder-slate-500"
-                />
+          <section className="planner-layout">
+            <aside className="planner-sidebar">
+              <article className="compound-card">
+                <div className="compound-top">
+                  <h3>{targetName || 'Target Molecule'}</h3>
+                  <ShieldCheck className="w-4 h-4" />
+                </div>
 
-                <div className="absolute right-2 top-2 bottom-2 flex items-center gap-2">
-                  <input
-                    type="file"
-                    id="file-upload"
-                    className="hidden"
-                    accept="image/*"
-                    onChange={handleFileSelect}
+                <div className="compound-slate">
+                  <MoleculeStructure2D
+                    smiles={smilesInput || normalizedResult?.molecule?.canonical_smiles}
+                    height={170}
                   />
-                  <label
-                    htmlFor="file-upload"
-                    className={`p-3 rounded-lg transition-colors cursor-pointer ${selectedFile ? 'bg-chemistry-accent/20 text-chemistry-accent' : 'bg-slate-800 hover:bg-slate-700 text-slate-400'}`}
-                    title="Upload Image"
-                  >
-                    <Paperclip className="w-6 h-6" />
-                  </label>
-
-                  <button
-                    type="submit"
-                    disabled={loading}
-                    className="p-3 bg-chemistry-accent hover:bg-chemistry-accent/90 text-chemistry-primary rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                  >
-                    {loading ? <Loader2 className="w-6 h-6 animate-spin" /> : <Send className="w-6 h-6" />}
-                  </button>
                 </div>
-              </form>
 
-              {selectedFile && (
-                <div className="mt-2 flex items-center gap-2 text-sm text-chemistry-accent bg-chemistry-accent/10 w-fit px-3 py-1 rounded-full border border-chemistry-accent/20">
-                  <Paperclip className="w-3 h-3" />
-                  <span>{selectedFile.name}</span>
-                  <button onClick={clearFile} className="hover:text-white transition-colors">
-                    <X className="w-3 h-3" />
-                  </button>
-                </div>
-              )}
-            </div>
-
-            {/* Error Message */}
-            {error && (
-              <div className="bg-red-500/10 border border-red-500/20 text-red-400 p-4 rounded-xl text-center backdrop-blur-sm">
-                {error}
-              </div>
-            )}
-
-            {/* Agent Orchestration Visualization */}
-            {loading && <AgentOrchestrator isActive={loading} activeIndex={agentProgress.activeIndex} completedIndices={agentProgress.completedIndices} />}
-
-            {/* Results Section */}
-            {!loading && result && (
-              <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
-
-                {/* Intent & Canonicalization */}
-                <div className="grid md:grid-cols-2 gap-6">
-                  {/* Intent Card */}
-                  <div className="bg-chemistry-secondary/60 backdrop-blur-md rounded-xl p-6 border border-slate-700">
-                    <div className="flex items-center gap-2 mb-4 text-chemistry-highlight">
-                      <Activity className="w-5 h-5" />
-                      <h2 className="text-xl font-semibold">Parsed Intent</h2>
-                    </div>
-                    <div className="space-y-2 text-slate-300">
-                      <p><span className="text-slate-500">Target:</span> <span className="text-white font-medium">{result.intent.target || "N/A"}</span></p>
-                      <p><span className="text-slate-500">Mode:</span> {result.intent.mode}</p>
-                      <p><span className="text-slate-500">Priority:</span> {result.intent.priority}</p>
-                      <div className="flex gap-2 mt-2">
-                        {result.intent.constraints.map(c => (
-                          <span key={c} className="px-2 py-1 bg-chemistry-accent/10 text-chemistry-accent text-xs rounded-full border border-chemistry-accent/20">
-                            {c}
-                          </span>
-                        ))}
-                      </div>
-                    </div>
+                <dl className="compound-stats">
+                  <div>
+                    <dt>Molecular Weight</dt>
+                    <dd>{normalizedResult?.molecule?.molecular_weight || '--'}</dd>
                   </div>
+                  <div>
+                    <dt>Formula</dt>
+                    <dd>{toSubscriptFormula(normalizedResult?.molecule?.formula) || '--'}</dd>
+                  </div>
+                  <div>
+                    <dt>Confidence</dt>
+                    <dd>{confidenceLabel(normalizedResult?.routes?.[0]?.confidence) || '--'}</dd>
+                  </div>
+                </dl>
 
-                  {/* Molecule Card */}
-                  <div className="bg-chemistry-secondary/60 backdrop-blur-md rounded-xl p-6 border border-slate-700">
-                    <div className="flex items-center justify-between mb-4">
-                      <div className="flex items-center gap-2 text-chemistry-success">
-                        <Atom className="w-5 h-5" />
-                        <h2 className="text-xl font-semibold">Molecule Data</h2>
-                      </div>
-                      {result.canonical_data?.source && (
-                        <span className="text-xs px-2 py-1 rounded bg-slate-800 text-slate-400 border border-slate-600">
-                          via {result.canonical_data.source}
-                        </span>
-                      )}
-                    </div>
-                    {result.canonical_data && !result.canonical_data.error ? (
-                      <div className="space-y-3 text-slate-300">
-                        <div className="grid grid-cols-2 gap-3">
-                          <div>
-                            <p className="text-xs text-slate-500 uppercase tracking-wide mb-1">Chemical Name</p>
-                            <p className="font-medium">{result.canonical_data.name}</p>
-                          </div>
-                          <div>
-                            <p className="text-xs text-slate-500 uppercase tracking-wide mb-1">Molecular Formula</p>
-                            <p className="font-medium text-lg">
-                              {result.canonical_data.formula?.replace(/(\d+)/g, (match) => {
-                                const subscriptMap = { '0': '₀', '1': '₁', '2': '₂', '3': '₃', '4': '₄', '5': '₅', '6': '₆', '7': '₇', '8': '₈', '9': '₉' };
-                                return match.split('').map(d => subscriptMap[d] || d).join('');
-                              })}
-                            </p>
-                          </div>
-                        </div>
+                <div className="compound-badges">
+                  <span><AlertTriangle className="w-3 h-3" /> Safety-first</span>
+                  <span><Leaf className="w-3 h-3" /> Green options</span>
+                </div>
+              </article>
 
-                        <div className="grid grid-cols-2 gap-3">
-                          <div>
-                            <p className="text-xs text-slate-500 uppercase tracking-wide mb-1">Molecular Weight</p>
-                            <p className="font-medium">
-                              {result.canonical_data.molecular_weight} <span className="text-slate-500 text-sm">g/mol</span>
-                            </p>
-                          </div>
-                          {result.canonical_data.inchi && (
-                            <div>
-                              <p className="text-xs text-slate-500 uppercase tracking-wide mb-1">InChI Available</p>
-                              <button
-                                onClick={() => navigator.clipboard.writeText(result.canonical_data.inchi)}
-                                className="text-xs px-2 py-1 bg-slate-800 hover:bg-slate-700 rounded border border-slate-600 transition-colors"
-                                title="Click to copy InChI"
-                              >
-                                📋 Copy InChI
-                              </button>
-                            </div>
-                          )}
-                        </div>
-
+              <article className="side-panel">
+                <div className="side-panel-head">
+                  <h4>Proposed Routes</h4>
+                </div>
+                {routeSummary.length > 0 ? (
+                  <div className="route-mini-list">
+                    {routeSummary.map((route) => (
+                      <div key={route.key} className="route-mini-item">
                         <div>
-                          <div className="flex items-center justify-between mb-1">
-                            <p className="text-xs text-slate-500 uppercase tracking-wide">Canonical SMILES</p>
-                            <button
-                              onClick={() => navigator.clipboard.writeText(result.canonical_data.canonical_smiles)}
-                              className="text-xs text-chemistry-accent hover:underline"
-                            >
-                              Copy
-                            </button>
-                          </div>
-                          <div className="p-3 bg-slate-900/50 rounded-lg border border-slate-700 break-all font-mono text-xs text-green-400">
-                            {result.canonical_data.canonical_smiles}
-                          </div>
+                          <p>Route {route.index}</p>
+                          <small>{route.steps} steps</small>
                         </div>
-
-                        {result.canonical_data.inchi && (
-                          <details className="text-xs">
-                            <summary className="cursor-pointer text-slate-500 hover:text-slate-400 select-none">
-                              Show Full InChI
-                            </summary>
-                            <div className="mt-2 p-2 bg-slate-900/30 rounded border border-slate-800 break-all font-mono text-slate-500">
-                              {result.canonical_data.inchi}
-                            </div>
-                          </details>
-                        )}
+                        <div>
+                          <strong>{route.score}</strong>
+                          <small>{route.cost ? `$${route.cost}` : ''}</small>
+                        </div>
                       </div>
-                    ) : (
-                      <p className="text-slate-500 italic">No molecule data found.</p>
-                    )}
+                    ))}
                   </div>
+                ) : (
+                  <p className="empty-note">No routes yet. Run the synthesis pipeline to populate suggestions.</p>
+                )}
+              </article>
+
+              <article className="side-panel">
+                <div className="side-panel-head">
+                  <h4>Chemical Snapshot</h4>
                 </div>
+                {chemicalSnapshot.length > 0 ? (
+                  <div className="chem-stat-grid">
+                    {chemicalSnapshot.map((item) => (
+                      <div key={item.label} className="chem-stat-cell">
+                        <span>{item.label}</span>
+                        <strong>{item.value}</strong>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="empty-note">Add SMILES to generate instant molecular descriptors.</p>
+                )}
 
-                {/* Synthetic Routes Section */}
-                {result.routes && result.routes.length > 0 && (
-                  <div className="bg-slate-800/50 backdrop-blur-md rounded-xl p-6 border border-slate-700">
-                    <h2 className="text-xl font-semibold mb-4 flex items-center gap-2 text-chemistry-accent">
-                      <Activity className="w-5 h-5" />
-                      Synthetic Routes
-                    </h2>
-                    <div className="space-y-4">
-                      {result.routes.map((route, idx) => (
-                        <div key={idx} className="bg-slate-900/50 rounded-lg p-5 border border-slate-700/50 hover:border-chemistry-accent/30 transition-colors">
-                          <div className="flex justify-between items-start mb-3">
-                            <div className="flex items-center gap-2">
-                              <h3 className="font-medium text-slate-200 text-lg">Route {idx + 1}</h3>
-                              {route.source && (
-                                <span className="text-[10px] font-bold text-slate-400 border border-slate-600 px-1.5 py-0.5 rounded uppercase tracking-wider">
-                                  {route.source}
-                                </span>
-                              )}
-                            </div>
-                            <div className="flex gap-2">
-                              {route.score && (
-                                <span className="text-xs px-2 py-1 rounded-full bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 font-semibold">
-                                  Score: {typeof route.score === 'number' ? route.score.toFixed(1) : route.score}
-                                </span>
-                              )}
-                              {route.cost?.total_estimated_cost && (
-                                <span className="text-xs px-2 py-1 rounded-full bg-blue-500/20 text-blue-400 border border-blue-500/30 font-semibold">
-                                  ${route.cost.total_estimated_cost}
-                                </span>
-                              )}
-                              {route.confidence && (
-                                <span className="text-xs px-2 py-1 rounded-full bg-purple-500/20 text-purple-400 border border-purple-500/30">
-                                  {(route.confidence * 100).toFixed(0)}% conf
-                                </span>
-                              )}
-                            </div>
-                          </div>
-
-                          {/* Algorithm and Model Info */}
-                          {(route.algorithm || route.model || route.models_used) && (
-                            <div className="mb-3 p-2 bg-slate-800/50 rounded border border-slate-700/50 text-xs text-slate-400">
-                              <div className="flex flex-wrap gap-3">
-                                {route.algorithm && (
-                                  <span>
-                                    <span className="text-slate-500">Algorithm:</span> <span className="text-chemistry-highlight">{route.algorithm}</span>
-                                  </span>
-                                )}
-                                {route.model && (
-                                  <span>
-                                    <span className="text-slate-500">Model:</span> <span className="text-chemistry-highlight">{route.model}</span>
-                                  </span>
-                                )}
-                                {route.models_used && Array.isArray(route.models_used) && (
-                                  <span>
-                                    <span className="text-slate-500">Models:</span> <span className="text-chemistry-highlight">{route.models_used.join(', ')}</span>
-                                  </span>
-                                )}
-                              </div>
-                            </div>
-                          )}
-
-                          {/* Steps */}
-                          <div className="space-y-2 mt-3">
-                            {route.steps.map((step, sIdx) => (
-                              <div key={sIdx} className="text-sm text-slate-400 pl-4 border-l-2 border-slate-700 hover:border-chemistry-accent/50 transition-colors relative group">
-                                <div className="absolute -left-[5px] top-1.5 w-2 h-2 rounded-full bg-slate-600 group-hover:bg-chemistry-accent transition-colors"></div>
-                                <p className="text-slate-300 font-medium">{step.reaction}</p>
-                                <div className="flex flex-wrap gap-3 mt-1 text-xs">
-                                  {step.prediction?.predicted_yield && (
-                                    <span className="opacity-80">
-                                      Yield: <span className="text-emerald-400 font-semibold">{step.prediction.predicted_yield}%</span>
-                                    </span>
-                                  )}
-                                  {step.prediction?.feasibility && (
-                                    <span className="opacity-80">
-                                      Feasibility: <span className="text-blue-400">{step.prediction.feasibility}</span>
-                                    </span>
-                                  )}
-                                  {step.conditions && (
-                                    <span className="opacity-70 text-slate-500">
-                                      {step.conditions}
-                                    </span>
-                                  )}
-                                  {step.predicted_by && (
-                                    <span className="text-slate-600">
-                                      • {step.predicted_by}
-                                    </span>
-                                  )}
-                                </div>
-                              </div>
-                            ))}
-                          </div>
-
-                          {/* Safety Flags */}
-                          {route.safety?.hazards?.length > 0 && (
-                            <div className="mt-3 p-3 bg-red-500/10 border border-red-500/30 rounded-lg">
-                              <div className="flex items-start gap-2">
-                                <span className="text-lg">⚠️</span>
-                                <div className="flex-1">
-                                  <p className="text-xs font-semibold text-red-400 mb-1">Safety Alerts</p>
-                                  <div className="text-xs text-red-300 space-y-1">
-                                    {route.safety.hazards.map((h, i) => (
-                                      <div key={i} className="flex items-start gap-2">
-                                        <span className="text-red-500">•</span>
-                                        <span>{h.hazard || h.code || h}</span>
-                                      </div>
-                                    ))}
-                                  </div>
-                                </div>
-                              </div>
-                            </div>
-                          )}
-
-                          {/* Route Metrics */}
-                          {route.weights_used && (
-                            <details className="mt-3 text-xs">
-                              <summary className="cursor-pointer text-slate-500 hover:text-slate-400 select-none">
-                                Show Scoring Details
-                              </summary>
-                              <div className="mt-2 p-2 bg-slate-900/30 rounded border border-slate-800 space-y-1">
-                                {Object.entries(route.weights_used).map(([key, weight]) => (
-                                  <div key={key} className="flex justify-between text-slate-400">
-                                    <span className="capitalize">{key.replace('_', ' ')}:</span>
-                                    <span>{(weight * 100).toFixed(0)}%</span>
-                                  </div>
-                                ))}
-                              </div>
-                            </details>
-                          )}
-                        </div>
+                <div className="element-profile">
+                  <p>Element Profile</p>
+                  {elementProfile.length > 0 ? (
+                    <div className="element-chip-row">
+                      {elementProfile.map((element) => (
+                        <span key={`${element.symbol}-${element.count}`} className="element-chip">
+                          {element.symbol}
+                          <b>{element.count}</b>
+                        </span>
                       ))}
                     </div>
-                  </div>
-                )}
-
-                {/* Protocol Section */}
-                {result.protocol && (
-                  <div className="bg-slate-800/50 backdrop-blur-md rounded-xl p-6 border border-slate-700">
-                    <div className="flex justify-between items-center mb-4">
-                      <h2 className="text-xl font-semibold flex items-center gap-2 text-chemistry-accent">
-                        <BookOpen className="w-5 h-5" />
-                        Generated Protocol
-                      </h2>
-                      <button
-                        onClick={() => navigator.clipboard.writeText(result.protocol)}
-                        className="text-xs px-3 py-1.5 bg-chemistry-accent/20 hover:bg-chemistry-accent/30 text-chemistry-accent rounded border border-chemistry-accent/30 transition-colors"
-                      >
-                        📋 Copy Protocol
-                      </button>
-                    </div>
-                    <div className="bg-slate-900/50 p-5 rounded-lg border border-slate-700/50 overflow-x-auto">
-                      <pre className="whitespace-pre-wrap font-mono text-xs text-slate-300 leading-relaxed">
-                        {result.protocol}
-                      </pre>
-                    </div>
-                    <div className="mt-3 text-xs text-slate-500 italic flex items-center gap-2">
-                      <span>📝</span>
-                      <span>Generated using Jinja2 templates + GPT4o-mini NLG + RDKit stoichiometry</span>
-                    </div>
-                  </div>
-                )}
-
-                {/* Literature Results */}
-                <div className="bg-chemistry-secondary/60 backdrop-blur-md rounded-xl p-6 border border-slate-700">
-                  <div className="flex items-center gap-2 mb-4 text-chemistry-warning">
-                    <BookOpen className="w-5 h-5" />
-                    <h2 className="text-xl font-semibold">Literature Precedents</h2>
-                  </div>
-                  <div className="space-y-3">
-                    {result.literature_results?.map((doc, i) => (
-                      <div key={i} className="p-4 bg-slate-900/30 rounded-lg border border-slate-700 hover:border-chemistry-warning/30 transition-colors">
-                        <div className="flex justify-between items-start mb-1">
-                          <span className="text-xs font-bold text-chemistry-warning/80 border border-chemistry-warning/20 px-1.5 py-0.5 rounded uppercase tracking-wider">
-                            {doc.source || "Unknown"}
-                          </span>
-                          {doc.score && <span className="text-xs text-slate-500">Score: {doc.score.toFixed(2)}</span>}
-                        </div>
-                        <p className="text-slate-200 mt-1">{doc.text}</p>
-                        <div className="mt-2 flex justify-between items-center text-sm text-slate-500">
-                          <span>Yield: <span className="text-chemistry-success">{doc.yield}</span></span>
-                        </div>
-                      </div>
-                    ))}
-                    {(!result.literature_results || result.literature_results.length === 0) && (
-                      <p className="text-slate-500 italic">No literature found.</p>
-                    )}
-                  </div>
+                  ) : (
+                    <small>Formula breakdown appears after molecule canonicalization.</small>
+                  )}
                 </div>
+              </article>
 
-                {/* Reaction Results */}
-                <div className="bg-chemistry-secondary/60 backdrop-blur-md rounded-xl p-6 border border-slate-700">
-                  <div className="flex items-center gap-2 mb-4 text-chemistry-accent">
-                    <FlaskConical className="w-5 h-5" />
-                    <h2 className="text-xl font-semibold">Reaction Pathways</h2>
-                  </div>
-                  <div className="space-y-3">
-                    {result.reaction_results?.map((rxn, i) => (
-                      <div key={i} className="p-4 bg-slate-900/30 rounded-lg border border-slate-700 hover:border-chemistry-accent/30 transition-colors">
-                        <div className="flex justify-between items-start mb-2">
-                          <div className="flex items-center gap-2">
-                            <h3 className="font-medium text-chemistry-accent">{rxn.name}</h3>
-                            <span className="text-[10px] font-bold text-slate-400 border border-slate-600 px-1 py-0.5 rounded uppercase">
-                              {rxn.source || "DB"}
-                            </span>
-                          </div>
-                          <div className="flex flex-col items-end">
-                            <span className="text-xs px-2 py-1 bg-slate-800 rounded text-slate-400">
-                              Sim: {rxn.similarity?.toFixed(2)}
-                            </span>
-                            {rxn.method && <span className="text-[10px] text-slate-600 mt-0.5">{rxn.method}</span>}
-                          </div>
-                        </div>
-                        <div className="p-3 bg-slate-950 rounded border border-slate-800 font-mono text-xs text-slate-400 break-all">
-                          {rxn.smiles}
-                        </div>
-                      </div>
-                    ))}
-                    {(!result.reaction_results || result.reaction_results.length === 0) && (
-                      <p className="text-slate-500 italic">No reactions found.</p>
-                    )}
-                  </div>
+              <article className="side-panel">
+                <div className="side-panel-head">
+                  <h4>Lab Presets</h4>
                 </div>
+                <div className="preset-list">
+                  {LAB_PRESETS.map((preset) => (
+                    <button
+                      key={preset.label}
+                      type="button"
+                      className="preset-btn"
+                      onClick={() => applyPreset(preset.instruction)}
+                    >
+                      {preset.label}
+                    </button>
+                  ))}
+                </div>
+              </article>
+            </aside>
 
-              </div>
-            )}
-          </>
+            <section className="planner-content">
+              <article className="paper-panel">
+                <h2 className="panel-title">Target Synthesis</h2>
+
+                <form onSubmit={handleSubmit} className="synthesis-form">
+                  <div className="form-grid two-col">
+                    <label>
+                      <span>Target Name</span>
+                      <input value={targetName} onChange={(e) => setTargetName(e.target.value)} placeholder="Celecoxib" />
+                    </label>
+                    <label>
+                      <span>Scale (g)</span>
+                      <select value={scale} onChange={(e) => setScale(e.target.value)}>
+                        {SCALE_OPTIONS.map((option) => (
+                          <option key={option} value={option}>{option}</option>
+                        ))}
+                      </select>
+                    </label>
+                  </div>
+
+                  <label>
+                    <span>SMILES</span>
+                    <input
+                      value={smilesInput}
+                      onChange={(e) => setSmilesInput(e.target.value)}
+                      placeholder="Enter canonical SMILES"
+                    />
+                  </label>
+
+                  <label>
+                    <span>Objective</span>
+                    <textarea
+                      value={query}
+                      onChange={(e) => setQuery(e.target.value)}
+                      placeholder="Describe route goals, hazards to avoid, and process constraints..."
+                      rows={4}
+                    />
+                  </label>
+
+                  <div className="constraint-grid">
+                    {Object.entries(CONSTRAINT_LABELS).map(([key, label]) => (
+                      <label key={key} className="check-row">
+                        <input
+                          type="checkbox"
+                          checked={constraints[key]}
+                          onChange={(e) => setConstraints((prev) => ({ ...prev, [key]: e.target.checked }))}
+                        />
+                        <span>{label}</span>
+                      </label>
+                    ))}
+                  </div>
+
+                  <div className="form-actions">
+                    <input
+                      type="file"
+                      id="file-upload"
+                      className="hidden"
+                      accept="image/*"
+                      onChange={handleFileSelect}
+                    />
+                    <label htmlFor="file-upload" className="ghost-btn" title="Attach molecule sketch or image">
+                      <Paperclip className="w-4 h-4" />
+                      Attach
+                    </label>
+
+                    <button type="submit" disabled={loading} className="run-btn">
+                      {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
+                      Run Synthesis Pipeline
+                    </button>
+                  </div>
+                </form>
+
+                {selectedFile ? (
+                  <div className="file-pill">
+                    <Paperclip className="w-3 h-3" />
+                    <span>{selectedFile.name}</span>
+                    <button type="button" onClick={clearFile} aria-label="Remove file">
+                      <X className="w-3 h-3" />
+                    </button>
+                  </div>
+                ) : null}
+
+                <div className="example-row">
+                  {PLANNER_EXAMPLES.map((example) => (
+                    <button key={example} type="button" className="example-chip" onClick={() => applyExample(example)}>
+                      {example}
+                    </button>
+                  ))}
+                </div>
+              </article>
+
+              {loading ? (
+                <article className="paper-panel">
+                  <AgentOrchestrator
+                    isActive={loading}
+                    activeIndex={agentProgress.activeIndex}
+                    completedIndices={agentProgress.completedIndices}
+                  />
+                </article>
+              ) : null}
+
+              {error ? <article className="paper-panel error-surface">{error}</article> : null}
+
+              {normalizedResult ? (
+                <section className="planner-results-grid">
+                  <article className="paper-panel">
+                    <h3 className="panel-subtitle">
+                      <Activity className="w-4 h-4" /> Parsed Intent
+                    </h3>
+                    <div className="mini-kv-grid">
+                      <div>
+                        <span>Target</span>
+                        <strong>{normalizedResult.intent.target || targetName || 'N/A'}</strong>
+                      </div>
+                      <div>
+                        <span>Mode</span>
+                        <strong>{normalizedResult.intent.mode || 'automation'}</strong>
+                      </div>
+                      <div>
+                        <span>Priority</span>
+                        <strong>{normalizedResult.intent.priority || 'normal'}</strong>
+                      </div>
+                      <div>
+                        <span>Canonicalized</span>
+                        <strong>{normalizedResult.molecule?.name ? 'yes' : 'pending'}</strong>
+                      </div>
+                    </div>
+                  </article>
+
+                  <article className="paper-panel">
+                    <h3 className="panel-subtitle">
+                      <Atom className="w-4 h-4" /> Reagent Suggestions
+                    </h3>
+                    {reagentRows.length > 0 ? (
+                      <div className="reagent-list">
+                        {reagentRows.map((item, idx) => (
+                          <div key={`${item.name}-${idx}`} className="reagent-item">
+                            <h4>{item.name}</h4>
+                            <p>{item.temperature}</p>
+                            <div>
+                              <span>{item.yield ? `Yield ${item.yield}%` : 'Yield variable'}</span>
+                              <span>{item.feasibility || 'Feasibility unknown'}</span>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <p className="empty-note">No reagent list available yet for this run.</p>
+                    )}
+                  </article>
+
+                  <article className="paper-panel full-span">
+                    <h3 className="panel-subtitle">
+                      <FlaskConical className="w-4 h-4" /> Synthetic Routes
+                    </h3>
+                    <div className="route-detail-list">
+                      {normalizedResult.routes.length > 0 ? (
+                        normalizedResult.routes.map((route, routeIdx) => (
+                          <div key={route.id || routeIdx} className="route-detail-card">
+                            <div className="route-detail-head">
+                              <h4>Route {routeIdx + 1}</h4>
+                              <div>
+                                {typeof route.score === 'number' ? <span>Score {route.score.toFixed(1)}</span> : null}
+                                {route.confidence ? <span>{confidenceLabel(route.confidence)}</span> : null}
+                              </div>
+                            </div>
+                            <p className="route-algo">{route.algorithm || 'Workflow route'}</p>
+                            <div className="route-step-list">
+                              {(Array.isArray(route.steps) ? route.steps : []).map((step, stepIdx) => (
+                                <p key={`${routeIdx}-${stepIdx}`}>{step.reaction || 'Reaction step'} | {step.conditions || 'conditions not specified'}</p>
+                              ))}
+                            </div>
+                          </div>
+                        ))
+                      ) : (
+                        <p className="empty-note">No synthetic routes were returned.</p>
+                      )}
+                    </div>
+                  </article>
+
+                  {normalizedResult.protocol ? (
+                    <article className="paper-panel full-span">
+                      <div className="panel-head-inline">
+                        <h3 className="panel-subtitle">
+                          <BookOpen className="w-4 h-4" /> Generated Protocol
+                        </h3>
+                        <button
+                          type="button"
+                          className="ghost-btn"
+                          onClick={() => navigator.clipboard.writeText(normalizedResult.protocol)}
+                        >
+                          Copy
+                        </button>
+                      </div>
+                      <pre className="protocol-block">{normalizedResult.protocol}</pre>
+                    </article>
+                  ) : null}
+                </section>
+              ) : null}
+            </section>
+          </section>
         )}
-      </div>
-    </div >
+      </main>
+    </div>
   );
 }
 

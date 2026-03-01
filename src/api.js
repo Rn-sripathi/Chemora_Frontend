@@ -1,107 +1,93 @@
-const API_BASE = 'http://localhost:8000';
+export const API_BASE = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000';
 
 /**
- * Processes a chemistry query with real-time streaming
- * @param {string} query - The user's chemistry query
- * @param {File} selectedFile - Optional image file
- * @param {Function} onAgentUpdate - Callback for agent progress updates
- * @returns {Promise} - Final result data
+ * Processes a chemistry query with real-time streaming.
  */
 export async function processQueryStream(query, selectedFile = null, onAgentUpdate = null) {
-    const formData = new FormData();
-    formData.append('query', query);
-    if (selectedFile) {
-        formData.append('file', selectedFile);
-    }
+  const formData = new FormData();
+  formData.append('query', query);
+  if (selectedFile) formData.append('file', selectedFile);
 
-    return new Promise((resolve, reject) => {
-        // Use fetch with streaming for POST with FormData
-        // (EventSource only supports GET, so we use fetch instead)
-        fetch(`${API_BASE}/api/stream`, {
-            method: 'POST',
-            body: formData,
-        }).then(response => {
-            const reader = response.body.getReader();
-            const decoder = new TextDecoder();
+  return new Promise((resolve, reject) => {
+    fetch(`${API_BASE}/api/stream`, {
+      method: 'POST',
+      body: formData,
+    })
+      .then((response) => {
+        if (!response.ok) {
+          reject(new Error(`Streaming request failed with status ${response.status}`));
+          return;
+        }
+        if (!response.body) {
+          reject(new Error('Streaming response body is empty.'));
+          return;
+        }
 
-            let buffer = '';
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = '';
 
-            function processText(text) {
-                const lines = text.split('\n');
-
-                for (const line of lines) {
-                    if (line.startsWith('data: ')) {
-                        try {
-                            const data = JSON.parse(line.substring(6));
-
-                            if (data.type === 'start') {
-                                console.log('Pipeline started:', data.message);
-                            } else if (data.type === 'agent') {
-                                if (onAgentUpdate) {
-                                    onAgentUpdate({
-                                        name: data.name,
-                                        status: data.status,
-                                        index: data.index
-                                    });
-                                }
-                            } else if (data.type === 'result') {
-                                resolve(data.data);
-                            } else if (data.type === 'error') {
-                                reject(new Error(data.message));
-                            } else if (data.type === 'done') {
-                                // Stream complete
-                            }
-                        } catch (e) {
-                            console.error('Error parsing SSE data:', e);
-                        }
-                    }
-                }
+        const processBlock = (text) => {
+          const lines = text.split('\n');
+          for (const line of lines) {
+            if (!line.startsWith('data: ')) continue;
+            try {
+              const data = JSON.parse(line.slice(6));
+              if (data.type === 'agent' && onAgentUpdate) {
+                onAgentUpdate({ name: data.name, status: data.status, index: data.index });
+              } else if (data.type === 'result') {
+                resolve(data.data);
+              } else if (data.type === 'error') {
+                reject(new Error(data.message));
+              }
+            } catch (error) {
+              console.error('SSE parse error:', error);
             }
+          }
+        };
 
-            function read() {
-                reader.read().then(({ done, value }) => {
-                    if (done) {
-                        if (buffer) processText(buffer);
-                        return;
-                    }
+        const read = () => {
+          reader
+            .read()
+            .then(({ done, value }) => {
+              if (done) {
+                if (buffer) processBlock(buffer);
+                return;
+              }
 
-                    buffer += decoder.decode(value, { stream: true });
+              buffer += decoder.decode(value, { stream: true });
+              const splitIndex = buffer.lastIndexOf('\n\n');
+              if (splitIndex !== -1) {
+                processBlock(buffer.slice(0, splitIndex));
+                buffer = buffer.slice(splitIndex + 2);
+              }
+              read();
+            })
+            .catch(reject);
+        };
 
-                    // Process complete messages
-                    const lastNewline = buffer.lastIndexOf('\n\n');
-                    if (lastNewline !== -1) {
-                        processText(buffer.substring(0, lastNewline));
-                        buffer = buffer.substring(lastNewline + 2);
-                    }
-
-                    read();
-                }).catch(reject);
-            }
-
-            read();
-        }).catch(reject);
-    });
+        read();
+      })
+      .catch(reject);
+  });
 }
 
 /**
- * Original non-streaming API (fallback)
+ * Non-streaming fallback endpoint.
  */
 export async function processQuery(query, selectedFile = null) {
-    const formData = new FormData();
-    formData.append('query', query);
-    if (selectedFile) {
-        formData.append('file', selectedFile);
-    }
+  const formData = new FormData();
+  formData.append('query', query);
+  if (selectedFile) formData.append('file', selectedFile);
 
-    const response = await fetch(`${API_BASE}/api/process`, {
-        method: 'POST',
-        body: formData,
-    });
+  const response = await fetch(`${API_BASE}/api/process`, {
+    method: 'POST',
+    body: formData,
+  });
 
-    if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
-    }
+  if (!response.ok) {
+    throw new Error(`HTTP error! status: ${response.status}`);
+  }
 
-    const data = await response.json();
-    return data;
+  return response.json();
 }
