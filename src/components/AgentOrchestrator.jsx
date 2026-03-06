@@ -1,98 +1,65 @@
 import React from 'react';
-import { CheckCircle, Circle, Loader } from 'lucide-react';
+import { CheckCircle2, Circle, Loader2 } from 'lucide-react';
+
+const AGENTS = [
+  { name: 'Intent Parser', desc: 'Parse query and constraints' },
+  { name: 'Canonicalizer', desc: 'Resolve molecular identity' },
+  { name: 'Literature Search', desc: 'Retrieve scientific precedents' },
+  { name: 'Reaction Search', desc: 'Fetch reaction analogs' },
+  { name: 'Retrosynthesis', desc: 'Generate candidate routes' },
+  { name: 'Yield Prediction', desc: 'Estimate feasibility' },
+  { name: 'Safety Check', desc: 'Flag hazards and controls' },
+  { name: 'Procurement', desc: 'Price and sourcing check' },
+  { name: 'Route Scoring', desc: 'Rank route quality' },
+  { name: 'Protocol Gen', desc: 'Generate bench-ready protocol' },
+  { name: 'Data Curation', desc: 'Persist context and outputs' },
+];
 
 const AgentOrchestrator = ({ isActive, activeIndex = -1, completedIndices = [] }) => {
-    const agents = [
-        { name: "Intent Parser", icon: "🔍", desc: "Understanding query" },
-        { name: "Canonicalizer", icon: "⚗️", desc: "Validating structure" },
-        { name: "Literature Search", icon: "📚", desc: "Finding precedents" },
-        { name: "Reaction Search", icon: "🧪", desc: "Matching reactions" },
-        { name: "Retrosynthesis", icon: "🔬", desc: "Planning routes" },
-        { name: "Yield Prediction", icon: "📊", desc: "Estimating yields" },
-        { name: "Safety Check", icon: "⚠️", desc: "Analyzing hazards" },
-        { name: "Procurement", icon: "💰", desc: "Finding vendors" },
-        { name: "Route Scoring", icon: "⭐", desc: "Ranking routes" },
-        { name: "Protocol Gen", icon: "📝", desc: "Creating protocol" },
-        { name: "Data Curation", icon: "💾", desc: "Logging data" }
-    ];
+  if (!isActive && completedIndices.length === 0) return null;
 
-    if (!isActive && completedIndices.length === 0) return null;
+  return (
+    <section className="pipeline-surface" aria-live="polite">
+      <div className="section-header compact">
+        <h2 className="section-title section-title-accent">Agent Pipeline</h2>
+        <span className="pipeline-meta">
+          {completedIndices.length}/{AGENTS.length} complete
+        </span>
+      </div>
 
-    return (
-        <div className="bg-slate-800/30 backdrop-blur-sm rounded-xl p-4 border border-slate-700/50">
-            <h3 className="text-sm font-semibold text-slate-300 mb-3 flex items-center gap-2">
-                <Loader className={`w-4 h-4 ${activeIndex >= 0 ? 'animate-spin text-chemistry-accent' : 'text-slate-600'}`} />
-                Real-Time Agent Pipeline
-                {completedIndices.length === agents.length && (
-                    <span className="ml-auto text-xs text-emerald-400">✓ Complete</span>
+      <div className="pipeline-grid">
+        {AGENTS.map((agent, index) => {
+          const isCompleted = completedIndices.includes(index);
+          const isCurrent = activeIndex === index;
+          const statusClass = isCurrent
+            ? 'is-current'
+            : isCompleted
+              ? 'is-complete'
+              : activeIndex === -1
+                ? 'is-idle'
+                : 'is-pending';
+
+          return (
+            <article key={agent.name} className={`pipeline-step ${statusClass}`}>
+              <div className="pipeline-step-icon">
+                {isCompleted ? (
+                  <CheckCircle2 className="w-4 h-4" />
+                ) : isCurrent ? (
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                ) : (
+                  <Circle className="w-4 h-4" />
                 )}
-            </h3>
-            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2">
-                {agents.map((agent, index) => {
-                    const isActiveAgent = activeIndex === index;
-                    const isCompleted = completedIndices.includes(index);
-                    const isPending = !isActiveAgent && !isCompleted && activeIndex !== -1;
-
-                    return (
-                        <div
-                            key={index}
-                            className={`
-                                relative p-2 rounded-lg border transition-all duration-300
-                                ${isActiveAgent ? 'bg-chemistry-accent/10 border-chemistry-accent/50 shadow-lg shadow-chemistry-accent/20' : ''}
-                                ${isCompleted ? 'bg-emerald-500/10 border-emerald-500/30' : ''}
-                                ${isPending ? 'bg-slate-800/50 border-slate-700' : ''}
-                                ${!isActiveAgent && !isCompleted && !isPending ? 'bg-slate-900/30 border-slate-800' : ''}
-                            `}
-                        >
-                            <div className="flex items-start gap-2">
-                                <span className={`text-xl ${isCompleted ? 'opacity-60' : ''}`}>
-                                    {agent.icon}
-                                </span>
-                                <div className="flex-1 min-w-0">
-                                    <p className={`text-xs font-medium truncate ${isActiveAgent ? 'text-chemistry-accent' :
-                                        isCompleted ? 'text-emerald-400' :
-                                            'text-slate-400'
-                                        }`}>
-                                        {agent.name}
-                                    </p>
-                                    <p className="text-[10px] text-slate-500 truncate">
-                                        {isActiveAgent ? agent.desc : isCompleted ? 'Done' : 'Pending'}
-                                    </p>
-                                </div>
-                                <div className="flex-shrink-0">
-                                    {isCompleted ? (
-                                        <CheckCircle className="w-3 h-3 text-emerald-400" />
-                                    ) : isActiveAgent ? (
-                                        <Loader className="w-3 h-3 text-chemistry-accent animate-spin" />
-                                    ) : (
-                                        <Circle className="w-3 h-3 text-slate-700" />
-                                    )}
-                                </div>
-                            </div>
-                            {isActiveAgent && (
-                                <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-chemistry-accent/20">
-                                    <div className="h-full bg-chemistry-accent animate-pulse" style={{ width: '100%' }}></div>
-                                </div>
-                            )}
-                        </div>
-                    );
-                })}
-            </div>
-            <div className="mt-3 text-[10px] text-slate-600 flex items-center justify-between">
-                <span>
-                    {completedIndices.length === agents.length
-                        ? '🎉 All agents executed successfully'
-                        : `⚡ ${completedIndices.length}/${agents.length} agents completed | LIVE from backend`
-                    }
-                </span>
-                {activeIndex >= 0 && activeIndex < agents.length && (
-                    <span className="text-chemistry-accent animate-pulse font-semibold">
-                        {agents[activeIndex].name} executing...
-                    </span>
-                )}
-            </div>
-        </div>
-    );
+              </div>
+              <div>
+                <h3>{agent.name}</h3>
+                <p>{isCurrent ? 'Running now' : isCompleted ? 'Completed' : agent.desc}</p>
+              </div>
+            </article>
+          );
+        })}
+      </div>
+    </section>
+  );
 };
 
 export default AgentOrchestrator;
