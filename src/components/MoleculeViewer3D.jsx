@@ -7,6 +7,7 @@ const MoleculeViewer3D = ({
   width = '100%',
   height = '320px',
   defaultStyle = 'ball-stick',
+  defaultMode = '3d',
 }) => {
   const viewerRef = useRef(null);
   const containerRef = useRef(null);
@@ -14,7 +15,7 @@ const MoleculeViewer3D = ({
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [viewStyle, setViewStyle] = useState(defaultStyle);
-  const [viewMode, setViewMode] = useState('3d');
+  const [viewMode, setViewMode] = useState(defaultMode);
   const [isSpinning, setIsSpinning] = useState(true);
   const [colorScheme, setColorScheme] = useState('element');
   const [surfaceType, setSurfaceType] = useState('none');
@@ -270,24 +271,27 @@ const MoleculeViewer3D = ({
       </div>
 
       <div className="molecule-stage" style={{ width, height }}>
-        {viewMode === '3d' ? (
-          <>
-            {loading ? (
-              <div className="molecule-overlay">
-                <div className="molecule-loader" />
-                <p>Loading 3D structure...</p>
-              </div>
-            ) : null}
+        {/* 3D canvas — always mounted; hidden when in 2D mode so 3Dmol never orphans its canvas */}
+        <div
+          ref={containerRef}
+          style={{ width: '100%', height: '100%', display: viewMode === '2d' ? 'none' : 'block' }}
+        />
 
-            {error ? (
-              <div className="molecule-overlay">
-                <p className="molecule-error">Unable to render this structure: {error}</p>
-              </div>
-            ) : null}
+        {/* Loading / error overlays — only while in 3D mode */}
+        {viewMode === '3d' && loading && (
+          <div className="molecule-overlay">
+            <div className="molecule-loader" />
+            <p>Loading 3D structure...</p>
+          </div>
+        )}
+        {viewMode === '3d' && error && (
+          <div className="molecule-overlay">
+            <p className="molecule-error">Unable to render this structure: {error}</p>
+          </div>
+        )}
 
-            <div ref={containerRef} style={{ width: '100%', height: '100%' }} />
-          </>
-        ) : (
+        {/* 2D panel — rendered on top via absolute positioning when in 2D mode */}
+        {viewMode === '2d' && (
           <div className="molecule-stage-2d">
             <img
               src={get2DImageUrl()}
