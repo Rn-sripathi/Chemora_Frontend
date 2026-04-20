@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useEffect, useId, useRef, useState } from 'react';
 
 const SMILES_DRAWER_CDN =
   'https://cdn.jsdelivr.net/npm/smiles-drawer@2.1.8/dist/smiles-drawer.min.js';
@@ -30,7 +30,7 @@ const loadSmilesDrawer = (() => {
 
 const MoleculeStructure2D = ({ smiles, height = 170 }) => {
   const canvasRef = useRef(null);
-  const canvasId = useMemo(() => `mol-2d-${Math.random().toString(36).slice(2, 10)}`, []);
+  const canvasId = `mol-2d-${useId().replace(/:/g, '')}`;
 
   const [theme, setTheme] = useState(getTheme);
   const [status, setStatus] = useState('idle');
@@ -43,15 +43,11 @@ const MoleculeStructure2D = ({ smiles, height = 170 }) => {
   }, []);
 
   useEffect(() => {
-    if (!smiles || !canvasRef.current) {
-      setStatus('idle');
-      return;
-    }
-
     let cancelled = false;
-    setStatus('loading');
+    if (!smiles || !canvasRef.current) return () => { cancelled = true; };
 
     const renderStructure = async () => {
+      setStatus('loading');
       try {
         const SmilesDrawer = await loadSmilesDrawer();
         if (cancelled || !canvasRef.current) return;
@@ -111,7 +107,7 @@ const MoleculeStructure2D = ({ smiles, height = 170 }) => {
             if (!cancelled) setStatus('fallback');
           },
         );
-      } catch (_err) {
+      } catch {
         if (!cancelled) setStatus('fallback');
       }
     };

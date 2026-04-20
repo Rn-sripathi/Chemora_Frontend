@@ -14,6 +14,9 @@ import {
   ShieldCheck,
   Sun,
   X,
+  Zap,
+  Beaker,
+  GitBranch,
 } from 'lucide-react';
 import { processQueryStream } from './api';
 import AgentOrchestrator from './components/AgentOrchestrator';
@@ -53,6 +56,14 @@ const LAB_PRESETS = [
   },
 ];
 
+const SCIENCE_PILLS = [
+  { label: 'Molecule Profiling', icon: Atom },
+  { label: 'Route Intelligence', icon: FlaskConical },
+  { label: 'Scale Safety', icon: ShieldCheck },
+  { label: 'Agent-to-Agent', icon: Zap },
+  { label: 'Retrosynthesis', icon: GitBranch },
+];
+
 const getInitialTheme = () => {
   const persisted = localStorage.getItem('chemora-theme');
   if (persisted === 'dark' || persisted === 'light') return persisted;
@@ -87,6 +98,27 @@ const shortReactionLabel = (reaction) => {
     .join(' + ');
 };
 
+const toStringList = (...inputs) => {
+  const list = [];
+  inputs.forEach((value) => {
+    if (Array.isArray(value)) {
+      value.forEach((entry) => {
+        if (typeof entry === 'string' && entry.trim()) list.push(entry.trim());
+      });
+    } else if (typeof value === 'string' && value.trim()) {
+      list.push(value.trim());
+    }
+  });
+  return [...new Set(list)];
+};
+
+const pickFirstString = (...candidates) => {
+  for (const candidate of candidates) {
+    if (typeof candidate === 'string' && candidate.trim()) return candidate.trim();
+  }
+  return '';
+};
+
 function App() {
   const [theme, setTheme] = useState(getInitialTheme);
   const [activeView, setActiveView] = useState('planner');
@@ -106,6 +138,7 @@ function App() {
   const [error, setError] = useState(null);
   const [selectedFile, setSelectedFile] = useState(null);
   const [agentProgress, setAgentProgress] = useState({ activeIndex: -1, completedIndices: [] });
+  const [a2aMessages, setA2aMessages] = useState([]);
 
   useEffect(() => {
     document.documentElement.setAttribute('data-theme', theme);
@@ -138,6 +171,7 @@ function App() {
       protocol: result.protocol || '',
       literature: result.literature_results || result.literature || [],
       reactions: result.reaction_results || result.reactions || [],
+      warnings: toStringList(result.warnings, result.warning, result.errors, result.error_messages),
     };
   }, [result]);
 
@@ -227,6 +261,67 @@ function App() {
     return rows.slice(0, 6);
   }, [normalizedResult]);
 
+  const diagnosticRows = useMemo(() => {
+    if (!normalizedResult) return [];
+    return [
+      { label: 'Routes', value: normalizedResult.routes.length || 0 },
+      { label: 'Literature Hits', value: normalizedResult.literature.length || 0 },
+      { label: 'Reaction Analogs', value: normalizedResult.reactions.length || 0 },
+      { label: 'Reagent Candidates', value: reagentRows.length || 0 },
+      { label: 'Warnings', value: normalizedResult.warnings.length || 0 },
+    ];
+  }, [normalizedResult, reagentRows.length]);
+
+  const literatureCards = useMemo(() => {
+    if (!normalizedResult?.literature?.length) return [];
+    return normalizedResult.literature.slice(0, 8).map((entryRaw, index) => {
+      const entry =
+        entryRaw && typeof entryRaw === 'object'
+          ? entryRaw
+          : { text: typeof entryRaw === 'string' ? entryRaw : '' };
+      const source = pickFirstString(entry.source, entry.database, entry.provider) || 'Literature';
+      const title = pickFirstString(entry.title, entry.name, entry.reaction) || `Precedent ${index + 1}`;
+      const detail =
+        pickFirstString(entry.summary, entry.description, entry.abstract, entry.text, entry.snippet) ||
+        'No abstract provided.';
+      const yieldText = pickFirstString(
+        entry.yield ? `Yield: ${entry.yield}` : '',
+        entry.predicted_yield ? `Yield: ${entry.predicted_yield}%` : '',
+      );
+
+      return {
+        source,
+        title,
+        detail,
+        yieldText,
+        url: pickFirstString(entry.url, entry.link, entry.reference_url),
+      };
+    });
+  }, [normalizedResult]);
+
+  const reactionCards = useMemo(() => {
+    if (!normalizedResult?.reactions?.length) return [];
+    return normalizedResult.reactions.slice(0, 10).map((entryRaw, index) => {
+      const entry =
+        entryRaw && typeof entryRaw === 'object'
+          ? entryRaw
+          : { reaction: typeof entryRaw === 'string' ? entryRaw : '' };
+      const title = pickFirstString(entry.name, entry.transformation, entry.reaction_name) || `Reaction ${index + 1}`;
+      const reaction = pickFirstString(entry.reaction, entry.reaction_smiles, entry.smiles);
+      const conditions = pickFirstString(entry.conditions, entry.solvent, entry.catalyst, entry.temperature);
+      const similarity =
+        typeof entry.similarity === 'number' ? `${Math.round(entry.similarity * 100)}% similarity` : '';
+
+      return {
+        title,
+        reaction,
+        conditions,
+        similarity,
+        source: pickFirstString(entry.source, entry.database),
+      };
+    });
+  }, [normalizedResult]);
+
   const handleSubmit = async (e) => {
     e.preventDefault();
     if (loading) return;
@@ -251,9 +346,12 @@ function App() {
     setError(null);
     setResult(null);
     setAgentProgress({ activeIndex: -1, completedIndices: [] });
+    setA2aMessages([]);
 
-    try {
-      const data = await processQueryStream(composedQuery, selectedFile, (agentUpdate) => {
+    const queryPromise = processQueryStream(
+      composedQuery,
+      selectedFile,
+      (agentUpdate) => {
         setAgentProgress((prev) => {
           const next = { ...prev, activeIndex: agentUpdate.index };
           if (agentUpdate.status === 'complete' && !prev.completedIndices.includes(agentUpdate.index)) {
@@ -261,28 +359,56 @@ function App() {
           }
           return next;
         });
-      });
+      },
+      (a2aMsg) => {
+        setA2aMessages((prev) => [...prev, a2aMsg]);
+      },
+    );
 
+    try {
+      const data = await queryPromise;
       setResult(data);
       if (data?.error) setError(data.error);
+      // Mark pipeline as finished (activeIndex -1 = idle) but keep completedIndices
+      setAgentProgress((prev) => ({ ...prev, activeIndex: -1 }));
     } catch (err) {
-      setError('Failed to connect to backend. Ensure the API server is running on port 8000.');
+      if (err.message?.includes('timed out')) {
+        setError('Request timed out after 5 minutes. Try a shorter or simpler query.');
+      } else {
+        setError('Failed to connect to backend. Ensure the API server is running on port 8000.');
+      }
       console.error('API Error:', err);
+      setAgentProgress({ activeIndex: -1, completedIndices: [] });
     } finally {
       setLoading(false);
-      setAgentProgress({ activeIndex: -1, completedIndices: [] });
     }
   };
 
   return (
     <div className="app-shell">
-      <header className="workspace-header">
-        <div>
-          <p className="eyebrow">AI Synthesis Workspace</p>
-          <h1 className="brand-title">CHEMORA</h1>
-          <p className="brand-subtitle">
-            Design, compare, and operationalize chemical routes with orchestration-grade AI agents.
-          </p>
+      <header className={`workspace-header${activeView === 'chat' ? ' header-compact' : ''}`}>
+        <div className="header-brand-block">
+          <div className="brand-icon-ring">
+            <Beaker className="w-6 h-6" />
+          </div>
+          <div>
+            <p className="eyebrow">AI-Powered Synthesis Workspace</p>
+            <h1 className="brand-title">CHEMORA</h1>
+          </div>
+        </div>
+        <p className="brand-subtitle">
+          Design, compare, and operationalize chemical routes with orchestration-grade AI agents and real-time Agent-to-Agent communication.
+        </p>
+        <div className="science-pill-row">
+          {SCIENCE_PILLS.map((pill) => {
+            const Icon = pill.icon;
+            return (
+              <span key={pill.label} className="science-pill">
+                <Icon className="w-3.5 h-3.5" />
+                {pill.label}
+              </span>
+            );
+          })}
         </div>
 
         <div className="workspace-actions">
@@ -317,6 +443,7 @@ function App() {
       </header>
 
       <main className="workspace-main">
+        <div key={activeView} className="view-panel">
         {activeView === 'chat' ? (
           <ChatInterface />
         ) : (
@@ -327,6 +454,7 @@ function App() {
                   <h3>{targetName || 'Target Molecule'}</h3>
                   <ShieldCheck className="w-4 h-4" />
                 </div>
+                <p className="compound-caption">Structure slate, molecular profile, and safety gates.</p>
 
                 <div className="compound-slate">
                   <MoleculeStructure2D
@@ -524,12 +652,58 @@ function App() {
                 </div>
               </article>
 
-              {loading ? (
+              {!loading && !normalizedResult && (
+                <article className="welcome-hero">
+                  <div className="hero-molecule-bg" aria-hidden="true">
+                    <svg viewBox="0 0 200 200" className="hero-molecule-svg">
+                      <circle cx="100" cy="60" r="8" className="hero-atom hero-atom-1" />
+                      <circle cx="60" cy="100" r="8" className="hero-atom hero-atom-2" />
+                      <circle cx="140" cy="100" r="8" className="hero-atom hero-atom-3" />
+                      <circle cx="80" cy="140" r="6" className="hero-atom hero-atom-4" />
+                      <circle cx="120" cy="140" r="6" className="hero-atom hero-atom-5" />
+                      <circle cx="100" cy="100" r="10" className="hero-atom hero-atom-6" />
+                      <line x1="100" y1="60" x2="100" y2="100" className="hero-bond" />
+                      <line x1="60" y1="100" x2="100" y2="100" className="hero-bond" />
+                      <line x1="140" y1="100" x2="100" y2="100" className="hero-bond" />
+                      <line x1="80" y1="140" x2="100" y2="100" className="hero-bond" />
+                      <line x1="120" y1="140" x2="100" y2="100" className="hero-bond" />
+                    </svg>
+                  </div>
+                  <div className="hero-content">
+                    <h3>Ready to Design Your Synthesis</h3>
+                    <p>
+                      Enter a target molecule above, configure your constraints, and let our
+                      12-agent pipeline design optimized synthetic routes with real-time
+                      Agent-to-Agent communication.
+                    </p>
+                    <div className="hero-features">
+                      <div className="hero-feature">
+                        <Zap className="w-4 h-4" />
+                        <span>A2A Protocol</span>
+                        <small>Agents share insights in real-time</small>
+                      </div>
+                      <div className="hero-feature">
+                        <GitBranch className="w-4 h-4" />
+                        <span>Multi-Route</span>
+                        <small>Parallel route exploration</small>
+                      </div>
+                      <div className="hero-feature">
+                        <ShieldCheck className="w-4 h-4" />
+                        <span>Safety-First</span>
+                        <small>GHS hazard screening built-in</small>
+                      </div>
+                    </div>
+                  </div>
+                </article>
+              )}
+
+              {(loading || agentProgress.completedIndices.length > 0) ? (
                 <article className="paper-panel">
                   <AgentOrchestrator
                     isActive={loading}
                     activeIndex={agentProgress.activeIndex}
                     completedIndices={agentProgress.completedIndices}
+                    a2aMessages={a2aMessages}
                   />
                 </article>
               ) : null}
@@ -538,6 +712,30 @@ function App() {
 
               {normalizedResult ? (
                 <section className="planner-results-grid">
+                  <article className="paper-panel full-span">
+                    <h3 className="panel-subtitle">
+                      <Activity className="w-4 h-4" /> Run Diagnostics
+                    </h3>
+                    <div className="diagnostic-grid">
+                      {diagnosticRows.map((item) => (
+                        <div key={item.label} className="diagnostic-cell">
+                          <span>{item.label}</span>
+                          <strong>{item.value}</strong>
+                        </div>
+                      ))}
+                    </div>
+                    {normalizedResult.warnings.length > 0 ? (
+                      <div className="warning-stack">
+                        {normalizedResult.warnings.map((warning, idx) => (
+                          <p key={`warning-${idx}`}>
+                            <AlertTriangle className="w-3.5 h-3.5" />
+                            {warning}
+                          </p>
+                        ))}
+                      </div>
+                    ) : null}
+                  </article>
+
                   <article className="paper-panel">
                     <h3 className="panel-subtitle">
                       <Activity className="w-4 h-4" /> Parsed Intent
@@ -613,6 +811,60 @@ function App() {
                     </div>
                   </article>
 
+                  <article className="paper-panel full-span">
+                    <h3 className="panel-subtitle">
+                      <BookOpen className="w-4 h-4" /> Literature Precedents
+                    </h3>
+                    {literatureCards.length > 0 ? (
+                      <div className="literature-list">
+                        {literatureCards.map((item, idx) => (
+                          <article key={`${item.title}-${idx}`} className="literature-card">
+                            <div className="literature-head">
+                              <h4>{item.title}</h4>
+                              <span>{item.source}</span>
+                            </div>
+                            <p>{item.detail}</p>
+                            <div className="literature-foot">
+                              <small>{item.yieldText || 'Yield not reported'}</small>
+                              {item.url ? (
+                                <a href={item.url} target="_blank" rel="noopener noreferrer">
+                                  Open Reference
+                                </a>
+                              ) : null}
+                            </div>
+                          </article>
+                        ))}
+                      </div>
+                    ) : (
+                      <p className="empty-note">No literature precedents were returned for this run.</p>
+                    )}
+                  </article>
+
+                  <article className="paper-panel full-span">
+                    <h3 className="panel-subtitle">
+                      <Atom className="w-4 h-4" /> Reaction Pathways
+                    </h3>
+                    {reactionCards.length > 0 ? (
+                      <div className="reaction-grid">
+                        {reactionCards.map((item, idx) => (
+                          <article key={`${item.title}-${idx}`} className="reaction-card">
+                            <div className="reaction-head">
+                              <h4>{item.title}</h4>
+                              {item.similarity ? <span>{item.similarity}</span> : null}
+                            </div>
+                            <code>{item.reaction || 'Reaction string unavailable'}</code>
+                            <div className="reaction-meta">
+                              <small>{item.conditions || 'Conditions unavailable'}</small>
+                              <small>{item.source || 'Generated'}</small>
+                            </div>
+                          </article>
+                        ))}
+                      </div>
+                    ) : (
+                      <p className="empty-note">No reaction analogs were returned for this run.</p>
+                    )}
+                  </article>
+
                   {normalizedResult.protocol ? (
                     <article className="paper-panel full-span">
                       <div className="panel-head-inline">
@@ -635,6 +887,7 @@ function App() {
             </section>
           </section>
         )}
+        </div>
       </main>
     </div>
   );

@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import * as $3Dmol from '3dmol';
 
 const MoleculeViewer3D = ({
@@ -19,6 +19,10 @@ const MoleculeViewer3D = ({
   const [colorScheme, setColorScheme] = useState('element');
   const [surfaceType, setSurfaceType] = useState('none');
   const [theme, setTheme] = useState(document.documentElement.getAttribute('data-theme') || 'dark');
+  const styleRef = useRef(viewStyle);
+  const colorRef = useRef(colorScheme);
+  const surfaceRef = useRef(surfaceType);
+  const spinRef = useRef(isSpinning);
 
   useEffect(() => {
     const root = document.documentElement;
@@ -31,82 +35,7 @@ const MoleculeViewer3D = ({
 
   const viewerBackground = theme === 'light' ? 0xf6f9ff : 0x081734;
 
-  useEffect(() => {
-    if (!smiles || !containerRef.current || viewMode === '2d') return;
-
-    setLoading(true);
-    setError(null);
-
-    if (viewerRef.current) {
-      viewerRef.current.clear();
-    }
-
-    try {
-      const viewer = $3Dmol.createViewer(containerRef.current, {
-        backgroundColor: viewerBackground,
-        antialias: true,
-      });
-      viewerRef.current = viewer;
-
-      const pubchemUrl = `https://pubchem.ncbi.nlm.nih.gov/rest/pug/compound/smiles/${encodeURIComponent(
-        smiles,
-      )}/SDF?record_type=3d`;
-
-      fetch(pubchemUrl)
-        .then((response) => {
-          if (!response.ok) throw new Error('PubChem fetch failed');
-          return response.text();
-        })
-        .then((sdfData) => {
-          viewer.addModel(sdfData, 'sdf');
-          applyStyle(viewer, viewStyle, colorScheme);
-          applySurface(viewer, surfaceType);
-          viewer.zoomTo();
-          viewer.render();
-          if (isSpinning) viewer.spin(true);
-          setLoading(false);
-        })
-        .catch(() => {
-          try {
-            viewer.addModel(smiles, 'smiles');
-            applyStyle(viewer, viewStyle, colorScheme);
-            applySurface(viewer, surfaceType);
-            viewer.zoomTo();
-            viewer.render();
-            if (isSpinning) viewer.spin(true);
-            setLoading(false);
-          } catch (_e) {
-            setError('Could not generate 3D structure');
-            setLoading(false);
-          }
-        });
-    } catch (_err) {
-      setError('Failed to initialize viewer');
-      setLoading(false);
-    }
-
-    return () => {
-      if (viewerRef.current) viewerRef.current.clear();
-    };
-  }, [smiles, viewMode, theme]);
-
-  useEffect(() => {
-    if (!viewerRef.current || viewMode !== '3d') return;
-    applyStyle(viewerRef.current, viewStyle, colorScheme);
-  }, [viewStyle, colorScheme, viewMode]);
-
-  useEffect(() => {
-    if (!viewerRef.current || viewMode !== '3d') return;
-    applySurface(viewerRef.current, surfaceType);
-  }, [surfaceType, viewMode]);
-
-  useEffect(() => {
-    if (!viewerRef.current || viewMode !== '3d') return;
-    viewerRef.current.setBackgroundColor(viewerBackground);
-    viewerRef.current.render();
-  }, [theme, viewMode, viewerBackground]);
-
-  const applyStyle = (viewer, styleName, scheme) => {
+  const applyStyle = useCallback((viewer, styleName, scheme) => {
     viewer.setStyle({}, {});
 
     let colorConfig = {};
@@ -155,9 +84,9 @@ const MoleculeViewer3D = ({
     }
 
     viewer.render();
-  };
+  }, []);
 
-  const applySurface = (viewer, nextSurfaceType) => {
+  const applySurface = useCallback((viewer, nextSurfaceType) => {
     viewer.removeAllSurfaces();
     if (nextSurfaceType === 'none') {
       viewer.render();
@@ -176,7 +105,92 @@ const MoleculeViewer3D = ({
       colorscheme: 'Jmol',
     });
     viewer.render();
-  };
+  }, []);
+
+  useEffect(() => {
+    styleRef.current = viewStyle;
+    colorRef.current = colorScheme;
+    surfaceRef.current = surfaceType;
+    spinRef.current = isSpinning;
+  }, [viewStyle, colorScheme, surfaceType, isSpinning]);
+
+  useEffect(() => {
+    if (!smiles || !containerRef.current || viewMode === '2d') return;
+    const initializeViewer = () => {
+      setLoading(true);
+      setError(null);
+
+      if (viewerRef.current) {
+        viewerRef.current.clear();
+      }
+
+      try {
+        const viewer = $3Dmol.createViewer(containerRef.current, {
+          backgroundColor: viewerBackground,
+          antialias: true,
+        });
+        viewerRef.current = viewer;
+
+        const pubchemUrl = `https://pubchem.ncbi.nlm.nih.gov/rest/pug/compound/smiles/${encodeURIComponent(
+          smiles,
+        )}/SDF?record_type=3d`;
+
+        fetch(pubchemUrl)
+          .then((response) => {
+            if (!response.ok) throw new Error('PubChem fetch failed');
+            return response.text();
+          })
+          .then((sdfData) => {
+            viewer.addModel(sdfData, 'sdf');
+            applyStyle(viewer, styleRef.current, colorRef.current);
+            applySurface(viewer, surfaceRef.current);
+            viewer.zoomTo();
+            viewer.render();
+            if (spinRef.current) viewer.spin(true);
+            setLoading(false);
+          })
+          .catch(() => {
+            try {
+              viewer.addModel(smiles, 'smiles');
+              applyStyle(viewer, styleRef.current, colorRef.current);
+              applySurface(viewer, surfaceRef.current);
+              viewer.zoomTo();
+              viewer.render();
+              if (spinRef.current) viewer.spin(true);
+              setLoading(false);
+            } catch {
+              setError('Could not generate 3D structure');
+              setLoading(false);
+            }
+          });
+      } catch {
+        setError('Failed to initialize viewer');
+        setLoading(false);
+      }
+    };
+
+    initializeViewer();
+
+    return () => {
+      if (viewerRef.current) viewerRef.current.clear();
+    };
+  }, [smiles, viewMode, viewerBackground, applyStyle, applySurface]);
+
+  useEffect(() => {
+    if (!viewerRef.current || viewMode !== '3d') return;
+    applyStyle(viewerRef.current, viewStyle, colorScheme);
+  }, [viewStyle, colorScheme, viewMode, applyStyle]);
+
+  useEffect(() => {
+    if (!viewerRef.current || viewMode !== '3d') return;
+    applySurface(viewerRef.current, surfaceType);
+  }, [surfaceType, viewMode, applySurface]);
+
+  useEffect(() => {
+    if (!viewerRef.current || viewMode !== '3d') return;
+    viewerRef.current.setBackgroundColor(viewerBackground);
+    viewerRef.current.render();
+  }, [viewMode, viewerBackground]);
 
   const toggleSpin = () => {
     if (!viewerRef.current) return;
