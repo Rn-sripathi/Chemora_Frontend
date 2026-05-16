@@ -33,29 +33,25 @@ const AgentOrchestrator = ({
 }) => {
   const [visibleMessages, setVisibleMessages] = useState([]);
   const feedRef = useRef(null);
+  const revealCursorRef = useRef(0);
 
   useEffect(() => {
-    if (a2aMessages.length > visibleMessages.length) {
-      const newMsgs = a2aMessages.slice(visibleMessages.length);
-      newMsgs.forEach((msg, i) => {
-        setTimeout(() => {
-          setVisibleMessages((prev) => [...prev, msg]);
-        }, i * 180);
-      });
-    }
-  }, [a2aMessages.length]);
+    if (a2aMessages.length <= revealCursorRef.current) return;
+    const start = revealCursorRef.current;
+    revealCursorRef.current = a2aMessages.length;
+    const newMsgs = a2aMessages.slice(start);
+    newMsgs.forEach((msg, i) => {
+      setTimeout(() => {
+        setVisibleMessages((prev) => [...prev, msg]);
+      }, i * 180);
+    });
+  }, [a2aMessages]);
 
   useEffect(() => {
     if (feedRef.current) {
       feedRef.current.scrollTop = feedRef.current.scrollHeight;
     }
   }, [visibleMessages]);
-
-  useEffect(() => {
-    if (!isActive && completedIndices.length === 0) {
-      setVisibleMessages([]);
-    }
-  }, [isActive, completedIndices.length]);
 
   if (!isActive && completedIndices.length === 0) return null;
 

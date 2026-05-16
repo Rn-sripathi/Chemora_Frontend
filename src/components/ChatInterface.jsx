@@ -132,9 +132,9 @@ const detectLoadingMessage = (text) => {
 const isSmilesLike = (str) => {
   if (!str || str.length < 3 || str.includes(' ')) return false;
   // Must contain at least one structural SMILES character (branch, ring, bond order)
-  if (!/[()[\]=#@\\\/]/.test(str)) return false;
+  if (!/[()[\]=#@\\/]/.test(str)) return false;
   // Must consist only of valid SMILES characters
-  return /^[A-Za-z0-9@+\-[\]()=#\\/%$.:/]*$/.test(str);
+  return /^[A-Za-z0-9@+\-[\]()=#\\/%$.:]*$/.test(str);
 };
 
 // Inline SMILES code renderer — renders a "View 3D" button for SMILES code blocks
@@ -180,7 +180,7 @@ const buildInitialMessages = () => ([
   {
     role: 'assistant',
     content:
-      'CHEMORA Research Assistant online. I have access to 12 specialized agents including retrosynthesis planning, safety assessment, literature search, and protocol generation.\n\nAsk me anything about:\n- Synthesis design and route optimization\n- Reaction mechanisms and selectivity\n- Safety assessment and GHS hazard analysis\n- Solvent selection and green chemistry\n- Scale-up considerations and process chemistry\n- Literature precedents and methodology comparison\n- NMR / IR / MS spectral interpretation\n- Stoichiometry, yield, and limiting-reagent calculations',
+      "Hi — I'm **Chemora**, your chemistry research assistant. Ask me anything about synthesis, mechanisms, safety, spectroscopy, or lab techniques. Paste a SMILES and I'll show you the 3D structure inline.",
     timestamp: new Date().toISOString(),
   },
 ]);

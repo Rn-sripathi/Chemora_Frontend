@@ -1519,12 +1519,11 @@
 }
 
 .chat-note-body {
-  margin-top: 0.55rem;
-  display: grid;
-  gap: 0.55rem;
+  margin-top: 0.45rem;
+  display: block;
   font-size: 0.95rem;
   color: var(--ink);
-  line-height: 1.72;
+  line-height: 1.58;
 }
 
 .chat-note-body > p {
@@ -2488,9 +2487,13 @@
 
 .markdown-body {
   font-size: 0.92rem;
-  line-height: 1.65;
+  line-height: 1.55;
   color: var(--ink);
 }
+
+/* Tighten the first/last child so they don't double-up against the body */
+.markdown-body > *:first-child { margin-top: 0; }
+.markdown-body > *:last-child  { margin-bottom: 0; }
 
 .markdown-body h1,
 .markdown-body h2,
@@ -2498,18 +2501,25 @@
 .markdown-body h4 {
   color: var(--ink);
   font-weight: 800;
-  margin-top: 0.8rem;
-  margin-bottom: 0.3rem;
-  line-height: 1.3;
+  margin-top: 0.55rem;
+  margin-bottom: 0.15rem;
+  line-height: 1.25;
 }
 
 .markdown-body h1 { font-size: 1.2rem; }
-.markdown-body h2 { font-size: 1.08rem; color: var(--green-deep); }
+.markdown-body h2 { font-size: 1.06rem; color: var(--green-deep); }
 .markdown-body h3 { font-size: 0.96rem; color: var(--green-deep); }
 .markdown-body h4 { font-size: 0.88rem; }
 
 .markdown-body p {
-  margin: 0.35rem 0;
+  margin: 0.2rem 0;
+}
+
+/* Pull lists tight against the heading immediately above them */
+.markdown-body h1 + ul, .markdown-body h2 + ul, .markdown-body h3 + ul, .markdown-body h4 + ul,
+.markdown-body h1 + ol, .markdown-body h2 + ol, .markdown-body h3 + ol, .markdown-body h4 + ol,
+.markdown-body p + ul, .markdown-body p + ol {
+  margin-top: 0.15rem;
 }
 
 .markdown-body strong {
@@ -2524,14 +2534,15 @@
 
 .markdown-body ul,
 .markdown-body ol {
-  margin: 0.4rem 0;
-  padding-left: 1.4rem;
+  margin: 0.2rem 0 0.3rem;
+  padding-left: 1.3rem;
 }
 
 .markdown-body li {
-  margin: 0.2rem 0;
-  line-height: 1.55;
+  margin: 0.08rem 0;
+  line-height: 1.5;
 }
+.markdown-body li > p { margin: 0; display: inline; }
 
 .markdown-body li::marker {
   color: var(--green-deep);

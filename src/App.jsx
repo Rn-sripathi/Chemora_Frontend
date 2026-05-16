@@ -139,6 +139,7 @@ function App() {
   const [selectedFile, setSelectedFile] = useState(null);
   const [agentProgress, setAgentProgress] = useState({ activeIndex: -1, completedIndices: [] });
   const [a2aMessages, setA2aMessages] = useState([]);
+  const [runId, setRunId] = useState(0);
 
   useEffect(() => {
     document.documentElement.setAttribute('data-theme', theme);
@@ -347,6 +348,7 @@ function App() {
     setResult(null);
     setAgentProgress({ activeIndex: -1, completedIndices: [] });
     setA2aMessages([]);
+    setRunId((id) => id + 1);
 
     const queryPromise = processQueryStream(
       composedQuery,
@@ -700,6 +702,7 @@ function App() {
               {(loading || agentProgress.completedIndices.length > 0) ? (
                 <article className="paper-panel">
                   <AgentOrchestrator
+                    key={runId}
                     isActive={loading}
                     activeIndex={agentProgress.activeIndex}
                     completedIndices={agentProgress.completedIndices}
